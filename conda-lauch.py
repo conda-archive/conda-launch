@@ -4,17 +4,67 @@ import conda_api
 import subprocess
 import sys
 import os
+import json
 
 def get_input_file(argv):
-	# TODO need to accept tarballs and handle appropriately
+	# TODO need to accept tarballs containing package data, and have conda use those
+	# presently this will handle a .ipynb file on its own
+	# OR a .tar file containing .ipynb and required ancillary data files, etc.
 	if len(argv) == 1:
 		print("ERROR: You didn't specify an input file\nUsage: conda-launch <notebook_name>.ipynb")
 		sys.exit(1)
-	appfile_ipynb = sys.argv[1]
-	if appfile_ipynb[-5:] != 'ipynb':
-		print("Input file doesn't have extension ipynb. That's all that is supported right now.")
+	other_input = None
+	if len(argv) > 2:
+		other_input = argv[2:]
+		## TODO parse this (probably use conda's parser?)
+
+	## handle input file options
+	input_file = sys.argv[1]
+	root_fname,extn = input_file.split(".")
+	print "INPUT FILE",root_fname,extn
+	if extn == "ipynb":
+		appfile_ipynb = input_file
+	elif extn == "tar":
+		import tarfile
+		tf = tarfile.open(input_file, mode="r:*")
+		tf.extractall()
+		appfile_ipynb = root_fname + ".ipynb"
+		print "Opened tarfile. Expecting to use notebook",appfile_ipynb
+		## need more graceful handling here to inspect tarball contents and identify notebooks
+	else:	
+		print "Input file",input_file,"has an extension that is not supported.\nSupported formats are\nipython notebook with extension .ipynb OR\ntarball containing ipython notebook of the same name"
 		sys.exit(1)
 	return (appfile_ipynb, None)
+
+def load_params(fname, override_params=None):
+	# default parameters here
+	set_params = {"depends" : ["ipython-notebook"],
+								"platform_depends" : {},
+								"appname" : fname,
+								"envname" : "ipynb_test",
+								"filesroot" : "$HOME",
+								"data" : {}
+								}
+	with open(fname) as nb_file:
+		nb_metadata = json.load(nb_file)["metadata"]
+	print "Inspecting notebook metadata"
+	app_metadata = nb_metadata.get("app")
+	if app_metadata:
+		# load any from metadata
+		for param in app_metadata.keys():
+			set_params[param] = app_metadata[param]
+			print "Assigned parameter",param,set_params[param]
+	else:
+		print "No metadata furnished in notebook."
+	# this would be stuff from the command line
+	if override_params:
+		for param in override_params.keys():
+			set_params[param] = override_params[param]
+			print "Overriding parameter",param,set_params[param]
+	print "Using parameters"
+	for param in set_params:
+		print param,":",set_params[param]
+	return set_params
 
 def issue_cmd(cmd_list, call_func=subprocess.check_output):	
 	try:
@@ -32,26 +82,25 @@ if __name__=="__main__":
 	path_stem = conda_path.split("/bin/conda")[0]
 	conda_api.set_root_prefix(path_stem)
 	
-	## parameters to create conda environment
-	# TODO parse 'app' metadata from *ipynb
+	(appfile_ipynb, other_input) = get_input_file(sys.argv)
+	## TODO accept additional parameters contained in other_input
+	if other_input:
+		print "Received from command line:",other_input
+		print "Not supported yet; Ignored for now"
+
+	## get metadata from ipynb (looking for key "app")
+	## use defaults where metadata are not provided
+	conda_params = load_params(appfile_ipynb)
 	# TODO could also try to be smart and look at import statements to suggest packages that should be installed
-	
-	## TODO add to this from ipynb metadata
+	## TODO support version specification
 	## include a tuple for each package, version req optional
-	depends = [('ipython-notebook','2.0')] # this is just the default
+	## depends = ['bokeh',('ipython-notebook','2.0')] # this is just the default
 	
-	## optional parameters with defaults
-	# TODO handle params appname, platform_depends, filesroot, data
-	conda_params = {'envname':'ipynb_test'}
-
-	(appfile_ipynb, other_files) = get_input_file(sys.argv)
-	## TODO handle other_files from cl here
-
 	## create conda environment
 	create_env = True
 	## first see if the name exists
-	env_output = issue_cmd(["info","-e"],conda_api._call_conda)[0].split("\n")
 	## this is some clumsy string munging
+	env_output = issue_cmd(["info","-e"],conda_api._call_conda)[0].split("\n")
 	for envline in env_output:
 		if len(envline)>1:
 			envfound = envline.split()[0]
@@ -69,13 +118,16 @@ if __name__=="__main__":
 	if create_env:
 		## assemble the command string to pass to conda
 		conda_create_env_cmd = ['create','-n',conda_params['envname']]
-		for add_pkg in depends:
-			add_str = add_pkg[0]
-			if len(add_pkg) > 1:
-				add_str += "=" + str(add_pkg[1])
-			conda_create_env_cmd.append(add_str)
+		for add_pkg in conda_params['depends']:
+			conda_create_env_cmd.append(add_pkg)
+			#add_str = add_pkg[0]
+			#if len(add_pkg) > 1:
+			#	add_str += "=" + str(add_pkg[1])
+			#conda_create_env_cmd.append(add_str)
 
-		print("creating conda environment...")	
+		print "creating conda environment..."	
+		print "Hit enter to accept proposed package plan (it is not displayed to you at the moment)."
+		## awkward hack here: user doesn't get to interact with conda create and approve the environment
 		comm = issue_cmd(conda_create_env_cmd, conda_api._call_conda)
 		print comm[0]
 
