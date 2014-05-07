@@ -40,20 +40,25 @@ When conda launch notebook.ipynb starts it will:
 3. Copy the data files into ~/conda_app_data (unless over-ridden by app)
 4. Launch an IPython notebook in a particular directory with the notebook
 
-We define a notebook app as an .ipynb file with specific metadata added to the JSON file.  The metadata is under the keyname 'app'.  The value is a dictionary of metadata:
+We define a notebook app as an .ipynb file with specific metadata added to the
+JSON file.  The metadata is under the keyname 'app'.  The
+value is a dictionary of metadata:
 
-     'app' : appdict
 
-     appdict contains:
+```
+'app' : appdict
 
-     {
-     'depends': [list of requirement specification strings],  # default ipython-notebook
-     'platform_depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
-     'appname' : default is name of notebook  # optional
-     'envname' : 'name_of_app_environment' # optional, gives name of environment to create the default is 'appname'
-     'filesroot' : <path name of where files should be placed>  # full-path for where data files should go using $HOME and $PREFIX (default is $HOME/app_name_data)
-     'data' : {'name1': <base-64 encoded binary>, 'name2': <base-64 encoded binary>}
-     }
+appdict contains:
+
+{
+'depends': [list of requirement specification strings],  # default ipython-notebook
+'platform_depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
+'appname' : default is name of notebook  # optional
+'envname' : 'name_of_app_environment' # optional, gives name of environment to create the default is 'appname'
+'filesroot' : <path name of where files should be placed>  # full-path for where data files should go using $HOME and $PREFIX (default is $HOME/app_name_data)
+'data' : {'name1': <base-64 encoded binary>, 'name2': <base-64 encoded binary>}
+}
+```
 
 - Graceful error handling as noted in the code
 
