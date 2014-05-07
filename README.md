@@ -45,11 +45,13 @@ JSON file.  The metadata is under the keyname 'app'.  The
 value is a dictionary of metadata:
 
 
-```
+```json
 'app' : appdict
+```
 
 appdict contains:
 
+```json
 {
 'depends': [list of requirement specification strings],  # default ipython-notebook
 'platform_depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
