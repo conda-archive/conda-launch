@@ -6,11 +6,15 @@ Code implementing the conda-launch command including the ipynb app-server
 # Usage
 
 
+```bash
 $ python conda-launch.py <ipython-notebook>.ipynb
+```
 
 OR
 
+```bash
 $ python conda-launch.py <tarfile_containing_notebook>.tar
+```
 
 
 # Current Capability
