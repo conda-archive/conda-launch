@@ -50,7 +50,7 @@ value is a dictionary of metadata:
 
 
 ```
-'conda_app' : appdict
+'conda.app' : appdict
 ```
 
 appdict contains:
@@ -58,10 +58,10 @@ appdict contains:
 ```
 {
 'depends': [list of requirement specification strings],  # default ipython-notebook
-'platform_depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
+'platform-depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
 'appname' : default is name of notebook  # optional
 'envname' : 'name_of_app_environment' # optional, gives name of environment to create the default is 'appname'
-'filesroot' : <path name of where files should be placed>  # full-path for where data files should go using $HOME and $PREFIX (default is $HOME/app_name_data)
+'filesroot' : <relative path name of where files should be placed>  # full-path for where data files should go using $HOME and $PREFIX (default is $HOME/app_name_data)
 'data' : {'name1': <base-64 encoded binary>, 'name2': <base-64 encoded binary>}
 }
 ```
