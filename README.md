@@ -55,7 +55,7 @@ value is a dictionary of metadata:
 
 appdict contains:
 
-```json
+```
 {
 'depends': [list of requirement specification strings],  # default ipython-notebook
 'platform_depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
