@@ -3,7 +3,7 @@ conda-launch
 
 Code implementing the conda-launch command including the ipynb app-server
 
-# USAGE
+# Usage
 
 
 $ python conda-launch.py <ipython-notebook>.ipynb
@@ -13,14 +13,14 @@ OR
 $ python conda-launch.py <tarfile_containing_notebook>.tar
 
 
-# CURRENT CAPABILITY
+# Current Capability
 
 - Reads json metadata in from .ipynb file and sets (some, not all) parameters accordingly
 - Accepts .ipynb or .tar file
 - Creates environment specified dependencies if an env of the given name does not already exist.a
 - launches notebook
 
-# TO DO
+# TODO
 
 - Process other parameters and input formats according to this spec:
      There will be at least  three file-types that conda launch can handle:
