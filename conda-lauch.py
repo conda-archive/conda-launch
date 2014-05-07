@@ -5,21 +5,19 @@ import subprocess
 import sys
 import os
 import json
+import argparse
 
-def get_input_file(argv):
+def get_input_file():
 	# TODO need to accept tarballs containing package data, and have conda use those
 	# presently this will handle a .ipynb file on its own
 	# OR a .tar file containing .ipynb and required ancillary data files, etc.
-	if len(argv) == 1:
-		print("ERROR: You didn't specify an input file\nUsage: conda-launch <notebook_name>.ipynb")
-		sys.exit(1)
-	other_input = None
-	if len(argv) > 2:
-		other_input = argv[2:]
-		## TODO parse this (probably use conda's parser?)
+	p = argparse.ArgumentParser()
+	p.add_argument('filename')
+	p.add_argument('--setenv','-e',nargs='?',dest='setenv')
+	args = p.parse_args()
 
 	## handle input file options
-	input_file = sys.argv[1]
+	input_file = args.filename
 	root_fname,extn = input_file.split(".")
 	print "INPUT FILE",root_fname,extn
 	if extn == "ipynb":
@@ -34,7 +32,7 @@ def get_input_file(argv):
 	else:	
 		print "Input file",input_file,"has an extension that is not supported.\nSupported formats are\nipython notebook with extension .ipynb OR\ntarball containing ipython notebook of the same name"
 		sys.exit(1)
-	return (appfile_ipynb, None)
+	return (appfile_ipynb, args.setenv)
 
 def load_params(fname, override_params=None):
 	# default parameters here
@@ -82,7 +80,7 @@ if __name__=="__main__":
 	path_stem = conda_path.split("/bin/conda")[0]
 	conda_api.set_root_prefix(path_stem)
 	
-	(appfile_ipynb, other_input) = get_input_file(sys.argv)
+	(appfile_ipynb, other_input) = get_input_file()
 	## TODO accept additional parameters contained in other_input
 	if other_input:
 		print "Received from command line:",other_input
