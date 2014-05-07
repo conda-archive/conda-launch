@@ -7,13 +7,13 @@ Code implementing the conda-launch command including the ipynb app-server
 
 
 ```bash
-$ python conda-launch.py <ipython-notebook>.ipynb
+$ conda launch <ipython-notebook>.ipynb
 ```
 
 OR
 
 ```bash
-$ python conda-launch.py <tarfile_containing_notebook>.tar
+$ conda launch <tarfile_containing_notebook>.tar
 ```
 
 
@@ -50,7 +50,7 @@ value is a dictionary of metadata:
 
 
 ```
-'app' : appdict
+'conda_app' : appdict
 ```
 
 appdict contains:
