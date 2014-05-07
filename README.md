@@ -29,18 +29,18 @@ $ python conda-launch.py <tarfile_containing_notebook>.tar
 2. .tar        (collections of conda packages with notebook and data)
 3. .tar.bz2  (wakari bundles)
 
-     The difference between (2) and (3) is that (2) is self contained and has all the conda packages it needs contained inside.
+The difference between (2) and (3) is that (2) is self contained and has all the conda packages it needs contained inside.
 
-     We will begin with (1) -- and define the meta-data that conda launch will use.
+We will begin with (1) -- and define the meta-data that conda launch will use.
 
-     When conda launch notebook.ipynb starts it will:
+When conda launch notebook.ipynb starts it will:
 
 1. Create a suitable environment in the user (or system) environment directory (app_<name>[N]) if it doesn't exist already
 2. Install all conda packages required by the app (in addition to ipython notebook)
 3. Copy the data files into ~/conda_app_data (unless over-ridden by app)
 4. Launch an IPython notebook in a particular directory with the notebook
 
-     We define a notebook app as an .ipynb file with specific metadata added to the JSON file.  The metadata is under the keyname 'app'.  The value is a dictionary of metadata:
+We define a notebook app as an .ipynb file with specific metadata added to the JSON file.  The metadata is under the keyname 'app'.  The value is a dictionary of metadata:
 
      'app' : appdict
 
