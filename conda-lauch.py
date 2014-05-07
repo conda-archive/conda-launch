@@ -6,6 +6,8 @@ import sys
 import os
 import json
 import argparse
+#import server as ipyapp_server
+import webbrowser
 
 def get_input_file():
 	# TODO need to accept tarballs containing package data, and have conda use those
@@ -13,7 +15,8 @@ def get_input_file():
 	# OR a .tar file containing .ipynb and required ancillary data files, etc.
 	p = argparse.ArgumentParser()
 	p.add_argument('filename')
-	p.add_argument('--setenv','-e',nargs='?',dest='setenv')
+	p.add_argument('--envname','-e',nargs='?',dest='setenv')
+	p.add_argument('--mode','-m',nargs='?',default="ipynb", dest='setmode')
 	args = p.parse_args()
 
 	## handle input file options
@@ -32,7 +35,7 @@ def get_input_file():
 	else:	
 		print "Input file",input_file,"has an extension that is not supported.\nSupported formats are\nipython notebook with extension .ipynb OR\ntarball containing ipython notebook of the same name"
 		sys.exit(1)
-	return (appfile_ipynb, args.setenv)
+	return (appfile_ipynb, args.setenv, args.setmode)
 
 def load_params(fname, override_params=None):
 	# default parameters here
@@ -55,10 +58,10 @@ def load_params(fname, override_params=None):
 	else:
 		print "No metadata furnished in notebook."
 	# this would be stuff from the command line
-	if override_params:
-		for param in override_params.keys():
-			set_params[param] = override_params[param]
-			print "Overriding parameter",param,set_params[param]
+	#if override_params:
+	#	for param in override_params.keys():
+	#		set_params[param] = override_params[param]
+	#		print "Overriding parameter",param,set_params[param]
 	print "Using parameters"
 	for param in set_params:
 		print param,":",set_params[param]
@@ -80,12 +83,7 @@ if __name__=="__main__":
 	path_stem = conda_path.split("/bin/conda")[0]
 	conda_api.set_root_prefix(path_stem)
 	
-	(appfile_ipynb, other_input) = get_input_file()
-	## TODO accept additional parameters contained in other_input
-	if other_input:
-		print "Received from command line:",other_input
-		print "Not supported yet; Ignored for now"
-
+	(appfile_ipynb, override_env, set_mode) = get_input_file()
 	## get metadata from ipynb (looking for key "app")
 	## use defaults where metadata are not provided
 	conda_params = load_params(appfile_ipynb)
@@ -93,7 +91,17 @@ if __name__=="__main__":
 	## TODO support version specification
 	## include a tuple for each package, version req optional
 	## depends = ['bokeh',('ipython-notebook','2.0')] # this is just the default
-	
+	if override_env:
+		conda_params['envname'] = override_env
+		print "Overriding envname from command line; using",conda_params['envname']
+	if set_mode == 'ipyapp':
+		conda_params['mode'] = set_mode	
+		print "ipyapp mode ****************************"
+		## should check here that input file is of the correct format in this case
+	else:
+		conda_params['mode'] = 'ipynb'
+		print "Default mode",conda_params['mode']
+
 	## create conda environment
 	create_env = True
 	## first see if the name exists
@@ -123,15 +131,16 @@ if __name__=="__main__":
 			#	add_str += "=" + str(add_pkg[1])
 			#conda_create_env_cmd.append(add_str)
 
-		print "creating conda environment..."	
+		print "creating conda environment:"	
+		print conda_create_env_cmd
 		print "Hit enter to accept proposed package plan (it is not displayed to you at the moment)."
 		## awkward hack here: user doesn't get to interact with conda create and approve the environment
 		comm = issue_cmd(conda_create_env_cmd, conda_api._call_conda)
-		print comm[0]
+		print comm
 
-	## extra hacky
 	## need to adjust $PATH to find our environment
 	## I think this has to be done by hand...?
+	## how to do this in a cross-platform way?
 	print "activating environment",conda_params['envname']
 	add_path = path_stem + "/envs/" + conda_params['envname'] + "/bin"
 	curr_path = os.environ['PATH']
@@ -141,11 +150,22 @@ if __name__=="__main__":
 	comm = issue_cmd(['which','ipython'],subprocess.call)
 	## need to handle cases where ipython not found or environment was not set up correctly...
 
-	## launch ipynb
-	print "launching..."
-	run_cmd = ['ipython','notebook',appfile_ipynb]
-	comm = issue_cmd(run_cmd)
-	print comm
+	if conda_params['mode'] == 'ipyapp':
+		#ipyapp_server.start()	
+		launch_app_server = ['python','ipyapp/server.py','&']
+		subprocess.Popen(launch_app_server)
+		app_stem = appfile_ipynb.split(".")[0]
+		ipyapp_url = "127.0.0.1:5000/ipyapp/" + app_stem
+		print "Opening app at",ipyapp_url
+		webbrowser.open(ipyapp_url)
+
+	## default is just open notebook
+	else:
+		## launch ipynb
+		print "launching..."
+		run_cmd = ['ipython','notebook',appfile_ipynb]
+		comm = issue_cmd(run_cmd)
+		print comm
 
 	## clean up
 	os.environ['PATH'] = curr_path
