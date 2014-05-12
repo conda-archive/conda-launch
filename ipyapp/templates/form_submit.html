@@ -1,0 +1,24 @@
+<html>
+    <head>
+        <title>ipython notebook {{ nbname }}</title>
+        <link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}">
+    </head>
+    <body>
+        <div id="container">
+            <div class="title">
+                <h1>Update Parameters to Re-run Notebook</h1>
+            </div>
+            <div id="content">
+							<form method="post" action="{{ url_for('nb_post', nbname = nbname) }}" >
+							  {% block content %}
+                {% for p in params %}                                    
+                    <label for={{params[p]}}>{{p}}</label>                 
+                    <input type="text" name={{p}} /><br />                 
+                {% endfor %}
+                {% endblock %}                                 
+								<input type="submit"/>
+							</form>
+            </div>
+        </div>
+    </body>
+</html>
