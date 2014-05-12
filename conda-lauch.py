@@ -18,9 +18,9 @@ def get_input_file():
 	# TODO need to accept tarballs containing package data, and have conda use those
 	# presently this will handle a .ipynb file on its own
 	# OR a .tar file containing .ipynb and required ancillary data files, etc.
-	p = argparse.ArgumentParser()
-	p.add_argument('filename')
-	p.add_argument('--envname','-e',nargs='?',dest='setenv')
+	p = argparse.ArgumentParser(description='Set up conda environment and run ipyapp notebook server')
+	p.add_argument('filename', help="Must specify an ipython notebook file with extension .ipynb or a tarball containing a notebook file of the same name")
+	p.add_argument('--envname','-e',nargs='?',dest='setenv', help="Optional flag to name the conda environment to be created; if an envirionment of that name already exists a new env will be created with an altered name")
 	#p.add_argument('--mode','-m',nargs='?',default="ipynb", dest='setmode')
 	args = p.parse_args()
 
