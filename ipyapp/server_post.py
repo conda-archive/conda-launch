@@ -13,9 +13,10 @@ from runipy.notebook_runner import NotebookRunner, NotebookError
 
 app = Flask(__name__, template_folder='templates')
 
-#@app.route("/ipyapp/custom.css")
-#def custom_css():
-#    return ""
+@app.route("/custom.css")
+@app.route("/ipyapp/custom.css")
+def custom_css():
+    return ""
 
 ## form
 @app.route("/<nbname>.ipynb/form")
