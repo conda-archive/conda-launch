@@ -5,7 +5,6 @@ import os
 import signal
 import json
 import argparse
-import ipyapp.server
 
 def parse_output(std_stream):
 	index = len(std_stream)-1

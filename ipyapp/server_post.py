@@ -33,6 +33,7 @@ def nb_form(nbname):
 @app.route("/<nbname>.ipynb", methods=['GET','POST'])
 @app.route("/<nbname>", methods=['GET','POST'])
 def nb_post(nbname):
+    print "You may submit new parameters using",url_for('nb_form', nbname=nbname)
     input_cell = json.loads("""
     { 
      "cell_type": "code",
