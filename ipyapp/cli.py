@@ -16,7 +16,7 @@ examples:
 
 """
 
-def configure_parser(p):
+def configure_launch_parser(p):
     # The following is from the previous life of cli as conda.cli.main_launch
     # p = sub_parsers.add_parser(
     #    'launch',
@@ -54,13 +54,31 @@ def configure_parser(p):
         nargs=argparse.REMAINDER
     )
 
-    p.set_defaults(func=execute)
+    p.set_defaults(func=launchcmd)
 
+def configure_server_parser(p):
+    p.add_argument(
+        "-p", "--port",
+        default=5007,
+        help="set the app server port",
+    )
+    p.set_defaults(func=startserver)
 
-def execute(args, parser):
-    from ipyapp import client
+def launchcmd(args, parser):
+    import argparse
+    from ipyapp.client import launch
+
+    parser = argparse.ArgumentParser(
+        formatter_class = RawDescriptionHelpFormatter,
+        description = descr,
+        # help = descr, # only used in sub-parsers
+        epilog = example,
+    )
+
+    configure_launch_parser(parser)
+    args = parser.parse_args()
     try:
-        client.launch(
+        launch(
             notebook    = args.notebook,
             args        = args.nbargs,
             server      = args.server,
@@ -71,19 +89,20 @@ def execute(args, parser):
     except ValueError as ex:
         print("invalid arguments: " + str(ex))
 
-def main():
+def startserver(args, parser):
     import argparse
+    from ipyapp.server import serve
 
     parser = argparse.ArgumentParser(
         formatter_class = RawDescriptionHelpFormatter,
-        description = descr,
-        help = descr,
-        epilog = example,
+        description = "Start a notebook app server",
+        # help = descr, # only used in sub-parsers
+        epilog = "conda-appserver -p 5050"
     )
 
-    configure_parser(parser)
+    configure_server_parser(parser)
     args = parser.parse_args()
-    execute(args, parser)
+    serve(port=args.port)
 
 if __name__ == "__main__":
-    main()
+    launchcmd()

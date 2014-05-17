@@ -5,9 +5,6 @@
 # conda is distributed under the terms of the BSD 3-clause license.
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
-import sys
-import os
-
 try:
     from setuptools import setup
     using_setuptools = True
@@ -18,7 +15,6 @@ except ImportError:
 setup(
     name = "conda",
     version="0.1",
-    cmdclass=versioneer.get_cmdclass(),
     author = "Continuum Analytics, Inc.",
     author_email = "ijstokes@continuum.io",
     url = "https://github.com/conda/conda-launch",
@@ -32,9 +28,10 @@ setup(
     description = "appify ipython notebooks",
     long_description = open('README.md').read(),
     packages = ['ipyapp'],
-    install_requires = ['flask', 'requests'],
+    install_requires = ['ipython', 'runipy', 'flask', 'requests'],
     entry_points = {
         'console_scripts':
-            ['conda-launch = ipyapp.cli:main']
+            ['conda-launch = ipyapp.cli:launchcmd',
+             'conda-appserver = ipyapp.cli:startserver']
     }
 )

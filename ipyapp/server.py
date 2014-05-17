@@ -6,12 +6,13 @@ from IPython.nbconvert.exporters.html import HTMLExporter
 from IPython.nbformat.current import read as nb_read, write
 
 from flask import Flask, request, render_template, url_for
-
 from werkzeug.exceptions import BadRequestKeyError
 
 from runipy.notebook_runner import NotebookRunner, NotebookError
 
 app = Flask(__name__, template_folder='templates')
+
+PORT = 5007
 
 @app.route("/custom.css")
 @app.route("/ipyapp/custom.css")
@@ -33,7 +34,9 @@ def nb_form(nbname):
 @app.route("/<nbname>.ipynb", methods=['GET','POST'])
 @app.route("/<nbname>", methods=['GET','POST'])
 def nb_post(nbname):
+
     print "You may submit new parameters using",url_for('nb_form', nbname=nbname)
+
     input_cell = json.loads("""
     { 
      "cell_type": "code",
@@ -45,8 +48,10 @@ def nb_post(nbname):
      "prompt_number": 3
     }
 """)
+
     nb = json.load(open(nbname + ".ipynb"))
     app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
+
     for var, t in app_meta['inputs'].iteritems():
         try:
             if request.method == 'GET':
@@ -60,11 +65,12 @@ def nb_post(nbname):
         
     nb['worksheets'][0]['cells'][0] = input_cell
 
-    nb_obj = nb_read(StringIO(json.dumps(nb)), 'json')
-    nb_runner = NotebookRunner(nb_obj)
+    nb_obj      = nb_read(StringIO(json.dumps(nb)), 'json')
+    nb_runner   = NotebookRunner(nb_obj)
     nb_runner.run_notebook(skip_exceptions=False)
-    exporter = CustomHTMLExporter(config=Config({'HTMLExporter':{'default_template': 'noinputs.tpl'}}))
+    exporter    = CustomHTMLExporter(config=Config({'HTMLExporter':{'default_template': 'noinputs.tpl'}}))
     output, resources = exporter.from_notebook_node(nb_runner.nb)
+
     return output
 
 from IPython.nbconvert.preprocessors.base import Preprocessor
@@ -85,5 +91,8 @@ class CustomHTMLExporter(HTMLExporter):
         super(CustomHTMLExporter, self).__init__(**kw)
         self.register_preprocessor(AppifyNotebook, enabled=True)
 
-if __name__ == "__main__":
+def serve(port=PORT):
     app.run(debug=True)
+
+if __name__ == "__main__":
+    serve()
