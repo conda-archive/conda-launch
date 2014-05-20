@@ -1,8 +1,3 @@
-conda-launch
-============
-
-Code implementing the conda-launch command including the ipynb app-server
-
 # Usage
 
 
@@ -45,7 +40,7 @@ When conda launch notebook.ipynb starts it will:
 4. Launch an IPython notebook in a particular directory with the notebook
 
 We define a notebook app as an .ipynb file with specific metadata added to the
-JSON file.  The metadata is under the keyname 'app'.  The
+JSON file.  The metadata is under the keyname 'conda.app'.  The
 value is a dictionary of metadata:
 
 
@@ -66,9 +61,13 @@ appdict contains:
 }
 ```
 
+Notice that everything is optional so conda launch will work on arbitrary notebook files (and will just assume an environment with ipython notebook).
+
 - Graceful error handling as noted in the code
 
 - Suggest packages to install based on import statements?
 
 - Integrate with conda so that it can be called with
 $ conda launch <myfile>.ipynb
+
+
