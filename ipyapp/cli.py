@@ -64,7 +64,7 @@ def configure_server_parser(p):
     )
     p.set_defaults(func=startserver)
 
-def launchcmd(args, parser):
+def launchcmd():
     import argparse
     from ipyapp.client import launch
 
@@ -89,7 +89,7 @@ def launchcmd(args, parser):
     except ValueError as ex:
         print("invalid arguments: " + str(ex))
 
-def startserver(args, parser):
+def startserver():
     import argparse
     from ipyapp.server import serve
 
