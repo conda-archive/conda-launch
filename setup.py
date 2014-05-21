@@ -24,7 +24,7 @@ setup(
     description         = "appify ipython notebooks",
     long_description    = open('README.md').read(),
     packages            = ['ipyapp'],
-    install_requires    = ['ipython', 'runipy', 'flask', 'requests', 'conda'],
+    install_requires    = ['ipython', 'runipy', 'flask', 'requests', 'daemon', 'conda', 'conda-api'],
 
     entry_points        = {'console_scripts':
             ['conda-launch = ipyapp.cli:launchcmd',

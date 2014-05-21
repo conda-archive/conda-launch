@@ -41,7 +41,7 @@ def configure_launch_parser(p):
         help="conda environment to use (by name or path, relative to app server)",
     )
     p.add_argument(
-        "-c", "--channels",
+        "-c", "--channel",
         action="append",
         help="add a channel that will be used to look for the app or dependencies",
     )
@@ -61,6 +61,12 @@ def configure_server_parser(p):
         "-p", "--port",
         default=5007,
         help="set the app server port",
+    )
+    p.add_argument(
+        "-d", "--daemon",
+        action="store_true",
+        default=False,
+        help="start server in daemon mode",
     )
     p.set_defaults(func=startserver)
 
@@ -91,18 +97,21 @@ def launchcmd():
 
 def startserver():
     import argparse
-    from ipyapp.server import serve
+    from ipyapp.server import serve, start_local_server
 
     parser = argparse.ArgumentParser(
         formatter_class = RawDescriptionHelpFormatter,
         description = "Start a notebook app server",
         # help = descr, # only used in sub-parsers
-        epilog = "conda-appserver -p 5050"
+        epilog = "conda-appserver -p 5007"
     )
 
     configure_server_parser(parser)
     args = parser.parse_args()
-    serve(port=args.port)
+    if args.daemon:
+        start_local_server(port=args.port)
+    else:
+        serve(port=args.port)
 
 if __name__ == "__main__":
     launchcmd()

@@ -1,9 +1,10 @@
 import argparse
 import json
+import os
 import subprocess
+import sys
 
-HOST = "127.0.0.1"
-PORT = 5007
+from ipyapp.config import HOST, PORT
 
 def launch(notebook,
         args=None,
@@ -34,11 +35,18 @@ def launch(notebook,
     import webbrowser
     import requests
 
-    import ipyapp
+
 
     if not server:
-        ipyapp.start_local_server(port=PORT)
-        server = "http://{host}:{port}".format(host=HOST, port=PORT)
+        import ipyapp.server
+        pid = os.fork() # need to create an independent process to start the daemonized server
+        if pid: # then we are in the client:
+            server = "http://{host}:{port}".format(host=HOST, port=PORT)
+        else: # then we are in the process where the daemonized server should start:
+            ipyapp.server.start_local_server(port=PORT)
+            print "Should never see this: start_local_server should daemonize and self-exit"
+            sys.exit(1) # shouldn't get here
+
 
     urlargs = []
 
@@ -72,7 +80,7 @@ def launch(notebook,
     except ValueError:
         raise ValueError("launch arguments must be valid pairs, such as 'a=7'")
 
-    url = "{prefix}/?{urlargs_str}".format(urlargs_str=urlargs_str)
+    url = "{prefix}/?{urlargs_str}".format(prefix=server, urlargs_str=urlargs_str)
     if mode == 'open':
         webbrowser.open(url)
     elif mode == 'fetch':
