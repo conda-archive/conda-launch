@@ -5,15 +5,18 @@
 # conda is distributed under the terms of the BSD 3-clause license.
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
-from setuptools import setup
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
 
 import versioneer
-
 
 versioneer.versionfile_source = 'ipyapp/_version.py'
 versioneer.versionfile_build = 'ipyapp/_version.py'
 versioneer.tag_prefix = ''
 versioneer.parentdir_prefix = 'conda-launch-'
+
 
 setup(
     name                = "conda-launch",
