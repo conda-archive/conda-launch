@@ -9,6 +9,7 @@ from setuptools import setup
 
 import versioneer
 
+
 versioneer.versionfile_source = 'ipyapp/_version.py'
 versioneer.versionfile_build = 'ipyapp/_version.py'
 versioneer.tag_prefix = ''
@@ -24,7 +25,8 @@ setup(
     description         = "appify ipython notebooks",
     long_description    = open('README.md').read(),
     packages            = ['ipyapp'],
-    install_requires    = ['ipython', 'runipy', 'flask', 'requests', 'psutil', 'conda', 'conda-api'],
+    install_requires    = ['ipython', 'runipy', 'flask', 'requests',
+                           'psutil', 'conda', 'conda-api'],
 
     entry_points        = {'console_scripts':
             ['conda-launch = ipyapp.cli:launchcmd',
