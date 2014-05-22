@@ -31,7 +31,7 @@ setup(
     install_requires    = ['ipython', 'runipy', 'flask', 'requests',
                            'psutil', 'conda', 'conda-api'],
 
-    scrtips = ['bin/conda-appserver',
+    scripts = ['bin/conda-appserver',
                'bin/conda-launch'],
 
     classifiers = [
