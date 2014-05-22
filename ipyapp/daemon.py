@@ -32,13 +32,13 @@ class Daemon(object):
     """
     def __init__(self, pidfile, stdin=os.devnull,
                  stdout=os.devnull, stderr=os.devnull,
-                 home_dir='.', umask=022, verbose=1):
+                 home_dir='.', umask=022, loglevel=logging.INFO):
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
         self.pidfile = pidfile
         self.home_dir = home_dir
-        self.verbose = verbose
+        self.loglevel = loglevel
         self.umask = umask
 
     def daemonize(self):
@@ -73,25 +73,25 @@ class Daemon(object):
                 "fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
             os._exit(1)
 
-        if sys.platform != 'darwin':  # This block breaks on OS X
-            # Redirect standard file descriptors
-            sys.stdout.flush()
-            sys.stderr.flush()
-            si = file(self.stdin, 'r')
-            so = file(self.stdout, 'a+')
-            if self.stderr:
-                se = file(self.stderr, 'a+', 0)
-            else:
-                se = so
-            os.dup2(si.fileno(), sys.stdin.fileno())
-            os.dup2(so.fileno(), sys.stdout.fileno())
-            os.dup2(se.fileno(), sys.stderr.fileno())
+        #if sys.platform != 'darwin':  # This block breaks on OS X
+        # Redirect standard file descriptors
+        sys.stdout.flush()
+        sys.stderr.flush()
+        si = file(self.stdin, 'r')
+        so = file(self.stdout, 'a+')
+        if self.stderr:
+            se = file(self.stderr, 'a+', 0)
+        else:
+            se = so
+        os.dup2(si.fileno(), sys.stdin.fileno())
+        os.dup2(so.fileno(), sys.stdout.fileno())
+        os.dup2(se.fileno(), sys.stderr.fileno())
 
-            signal.signal(signal.SIGTERM, self._shutdown)
-            signal.signal(signal.SIGINT, self._shutdown)
+        signal.signal(signal.SIGTERM, self._shutdown)
+        signal.signal(signal.SIGINT, self._shutdown)
+        # end of OS X block
 
-        if self.verbose >= 1:
-            logging.info("Started")
+        logging.info("Daemon started")
 
         # Write pidfile
         atexit.register(
@@ -108,8 +108,7 @@ class Daemon(object):
         Start the daemon
         """
 
-        if self.verbose >= 1:
-            logging.info('Start daemon')
+        logging.info('Start daemon')
 
         # Check for a pidfile to see if the daemon already runs
         try:
@@ -163,8 +162,8 @@ class Daemon(object):
         Stop the daemon
         """
 
-        if self.verbose >= 1:
-            logging.info("Stopping daemon...")
+
+        logging.info("Stopping daemon...")
 
         # Get the pid from the pidfile
         pid = self.get_pid()
@@ -198,8 +197,7 @@ class Daemon(object):
                 print str(err)
                 sys.exit(1)
 
-        if self.verbose >= 1:
-            logging.info("Stopped daemon")
+        logging.info("Stopped daemon")
 
     def restart(self):
         """
@@ -224,8 +222,9 @@ class Daemon(object):
 
     @property
     def running(self):
+        import psutil
         pid = self.get_pid()
-        return pid and os.path.exists('/proc/%d' % pid)
+        return pid and pid in psutil.pids()
 
     def run(self):
         """

@@ -29,7 +29,7 @@ from werkzeug.exceptions import BadRequestKeyError
 from runipy.notebook_runner import NotebookRunner, NotebookError
 
 from ipyapp.daemon import Daemon
-from ipyapp.config import PORT, PIDFILE, LOGFILE, ERRFILE, DEBUG
+from ipyapp.config import PORT, HOST, PIDFILE, LOGFILE, ERRFILE, DEBUG
 
 
 app = Flask(__name__, template_folder='templates')
@@ -55,7 +55,7 @@ def nb_form(nbname):
 @app.route("/<nbname>", methods=['GET','POST'])
 def nb_post(nbname):
 
-    print "You may submit new parameters using",url_for('nb_form', nbname=nbname)
+    print("You may submit new parameters using",url_for('nb_form', nbname=nbname))
 
     input_cell = json.loads("""
     { 
@@ -80,7 +80,7 @@ def nb_post(nbname):
               value = eval("repr({cast}('{expr}'))".format(cast=t, expr=request.form[var]))
         except BadRequestKeyError as ex:
             value = eval("repr({cast}())".format(cast=t))
-            print "BadReq for parameter key/type",var,t
+            print("BadReq for parameter key/type",var,t)
         input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
         
     nb['worksheets'][0]['cells'][0] = input_cell
@@ -111,30 +111,14 @@ class CustomHTMLExporter(HTMLExporter):
         super(CustomHTMLExporter, self).__init__(**kw)
         self.register_preprocessor(AppifyNotebook, enabled=True)
 
-def serve(daemon=False, port=PORT):
-    " forks a separate process to run the server on localhost "
-
-    server = AppServerDaemon(pidfile=PIDFILE, stdout=LOGFILE, stderr=ERRFILE)
-    server.port = port
-    if daemon:
-        server.start()
-    else:
-        server.run()
-
+# TODO: Need something that will work on Windows
 class AppServerDaemon(Daemon):
 
     def run(self):
         #raise NotImplementedError("flask somehow defeats daemonization, so this doesn't work")
-        import time
-        i = 5
-        print "just before app.run()"
-        time.sleep(1)
-        app.run(debug=True, port=self.port)
-        while True:
-            i += 2
-            time.sleep(1)
-            print "AppServerDaemon.run(), i: [%s], p: [%s]" % (i, self.port)
-
+        import logging
+        logging.basicConfig(filename=self.stdout,level=self.loglevel)
+        app.run(debug=False, port=self.port)
 
 def server_parser():
 
@@ -149,22 +133,53 @@ def server_parser():
 
     p.add_argument(
         "-p", "--port",
-        default=5007,
+        default=PORT,
         help="set the app server port",
     )
+
     p.add_argument(
-        "-d", "--daemon",
-        action="store_true",
-        default=False,
-        help="start server in daemon mode",
+        "--host",
+        default=HOST,
+        help="set the app server ip",
+    )
+    p.add_argument(
+        "action",
+        default="start",
+        help="specify server action: daemon|start|stop|restart",
     )
     p.set_defaults(func=startserver)
 
     return p
 
+def serve(host=HOST, port=PORT, action='start'):
+    " control the server process: start, daemonize, stop, restart, depending on action "
+
+    # TODO: stdout/stderr redirection to files is not working properly
+    server = AppServerDaemon(pidfile=PIDFILE, stdout=LOGFILE, stderr=ERRFILE)
+
+    # TODO: this should be part of __init__, but pulled it for debugging
+    server.host = host
+    server.port = port
+
+    if action == "daemon":
+        if server.running:
+            print("daemonized app server already running: %s:%s" % (server.host, server.port))
+        else:
+            print("starting daemonized app server in the background")
+            server.start()
+    elif action == "start":
+        print("starting app server in the foreground")
+        server.run()
+    elif action == "stop":
+        print("stopping background app server")
+        server.stop()
+    elif action == "restart":
+        print("restarting background app server")
+        server.restart()
+
 def startserver():
     args = server_parser().parse_args()
-    serve(port=args.port, daemon=args.daemon)
+    serve(port=args.port, action=args.action)
 
 if __name__ == "__main__":
-    serve()
+    startserver()
