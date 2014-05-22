@@ -58,7 +58,7 @@ def nb_post(nbname):
     print("You may submit new parameters using",url_for('nb_form', nbname=nbname))
 
     input_cell = json.loads("""
-    { 
+    {
      "cell_type": "code",
      "collapsed": false,
      "input": [],
@@ -82,7 +82,7 @@ def nb_post(nbname):
             value = eval("repr({cast}())".format(cast=t))
             print("BadReq for parameter key/type",var,t)
         input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
-        
+
     nb['worksheets'][0]['cells'][0] = input_cell
 
     nb_obj      = nb_read(StringIO(json.dumps(nb)), 'json')

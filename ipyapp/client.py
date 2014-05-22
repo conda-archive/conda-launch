@@ -85,7 +85,7 @@ def launch(notebook,
     path    = []
     if exists(notebook): # path to local file
         urlargs.append(('nbfile',abspath(notebook)))
-    elif notebook.isdigit(): # just digits, assume gist 
+    elif notebook.isdigit(): # just digits, assume gist
         urlargs.append(('gist',notebook))
     else:
         path.append(notebook)
