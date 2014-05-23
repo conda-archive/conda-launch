@@ -1,23 +1,28 @@
 <html>
     <head>
-        <title>ipython notebook {{ nbname }}</title>
+        <title>{{ nbname }}</title>
         <link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}">
     </head>
     <body>
         <div id="container">
             <div class="title">
-                <h1>Update Parameters to Re-run Notebook</h1>
+                <h1>{{ nbname }}</h1>
             </div>
             <div id="content">
-							<form method="post" action="{{ url_for('nb_post', nbname = nbname) }}" >
-							  {% block content %}
-                {% for p in params %}                                    
-                    <label for={{params[p]}}>{{p}}</label>                 
-                    <input type="text" name={{p}} /><br />                 
-                {% endfor %}
-                {% endblock %}                                 
-								<input type="submit"/>
-							</form>
+                {{ desc }}
+                <form method="post" action="{{ post_url }}" >
+                    {% block content %}
+                    <table>
+                        {% for name, type in params %}
+                            <tr>
+                                <td><abbr title="{{type}}">{{name}}</abbr></td>
+                                <td><input type="text" name={{name}} /><br /></td>
+                            </tr>
+                        {% endfor %}
+                    </table>
+                    {% endblock %}                                 
+                    <input type="submit"/>
+                </form>
             </div>
         </div>
     </body>

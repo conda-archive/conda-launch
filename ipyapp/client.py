@@ -26,6 +26,19 @@ examples:
 
 """
 
+def url2path(notebook):
+    " convert a url to a path. e.g. http://example.com/a/b.ipynb -> url/example.com/a/b.ipynb "
+    from urlparse import urlparse
+
+    url = urlparse(notebook)
+    if url.scheme == "http":
+        path = ['url']
+    elif url.scheme == "https":
+        path = ['urls']
+    path.extend([url.netloc, url.path])
+
+    return path
+
 def launch(notebook,
         args=None,
         server=None,
@@ -58,37 +71,27 @@ def launch(notebook,
 
 
     if not server:
-        # TODO: Once the daemonized server is fixed, change this
-        if False:
-            import socket;
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex((HOST, PORT))
-            if result: # we were able to make a connection, so nothing else is bound to PORT
-                del result
-                print("Start an app server first: conda-appserver")
-                sys.exit(1)
-            else: # we weren't able to make a connection, so assume the appserver is running
-                server = "http://{host}:{port}".format(host=HOST, port=PORT)
-
-        # This is what *should* work, but server daemonization is broken
-        if True:
-            import ipyapp.server
-            pid = os.fork() # need to create an independent process to start the daemonized server
-            if pid: # then we are in the client:
-                server = "http://{host}:{port}".format(host=HOST, port=PORT)
-            else: # then we are in the process where the daemonized server should start:
-                ipyapp.server.serve(host=HOST, port=PORT, action="daemon")
-                sys.exit(1) # shouldn't get here: daemonized zerver should self-exit
+        import ipyapp.server
+        pid = os.fork() # need to create an independent process to start the daemonized server
+        if pid: # then we are in the client:
+            server = "http://{host}:{port}".format(host=HOST, port=PORT)
+        else: # then we are in the process where the daemonized server should start:
+            ipyapp.server.serve(host=HOST, port=PORT, action="daemon")
+            sys.exit(1) # shouldn't get here: daemonized zerver should self-exit
 
 
     urlargs = []
     path    = []
+    parts   = notebook.split('/')
+    last    = parts[-1]
     if exists(notebook): # path to local file
-        urlargs.append(('nbfile',abspath(notebook)))
-    elif notebook.isdigit(): # just digits, assume gist 
-        urlargs.append(('gist',notebook))
-    else:
         path.append(notebook)
+    elif last.isdigit(): # just digits, assume gist
+        path.extend(['gist',last])
+    elif notebook.startswith("http"):
+        path.extend(url2path(notebook))
+    else:
+        raise NotImplementedError('launch only supports local files, URLs, and GitHub gists')
 
     if args:
         urlargs.extend(arg.split("=") for arg in args)

@@ -166,7 +166,8 @@ class Daemon(object):
         logging.info("Stopping daemon...")
 
         # Get the pid from the pidfile
-        pid = self.get_pid()
+        pid = self.pid
+        logging.debug("trying to stop app server with PID %s" % pid)
 
         if not pid:
             message = "pidfile %s does not exist. Daemon not running?\n"
@@ -182,18 +183,17 @@ class Daemon(object):
         # Try killing the daemon process
         try:
             os.kill(pid, signal.SIGTERM)
-            _stime = time.time() + 10
-            while 1:
-                os.getpgid(pid)
-                time.sleep(0.1)
-                if time.time() > _stime:
-                    os.kill(pid, signal.SIGTERM)
-                    _stime += 3600
+            os.getpgid(pid)              # this will raise an exception if the process isn't running
+            time.sleep(1)                # process gets 1 second to clean itself up
+            os.kill(pid, signal.SIGKILL) # and now try to kill it if its still around
+            self.delpid()                # if we get this far without an exception, then remove the PID file
         except OSError, err:
             err = str(err)
             if err.find("No such process") > 0:
+                logging.debug('process purged, deleting pid file')
                 self.delpid()
             else:
+                logging.debug('failed to stop process: ' + err)
                 print str(err)
                 sys.exit(1)
 
@@ -206,7 +206,8 @@ class Daemon(object):
         self.stop()
         self.start()
 
-    def get_pid(self):
+    @property
+    def pid(self):
         try:
             pf = file(self.pidfile, 'r')
             pid = int(pf.read().strip())
@@ -223,7 +224,7 @@ class Daemon(object):
     @property
     def running(self):
         import psutil
-        pid = self.get_pid()
+        pid = self.pid
         return pid and pid in psutil.pids()
 
     def run(self):

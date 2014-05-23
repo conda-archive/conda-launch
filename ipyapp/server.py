@@ -6,23 +6,18 @@
 # conda is distributed under the terms of the BSD 3-clause license.
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
-import argparse
-import atexit
-import json
 import os
-import sys
-import time
+import json
 
-from abc import ABCMeta, abstractmethod
-from signal import SIGTERM
 from StringIO import StringIO
 from argparse import RawDescriptionHelpFormatter
 
 from IPython.config import Config
 from IPython.nbconvert.exporters.html import HTMLExporter
+from IPython.nbconvert.preprocessors.base import Preprocessor
 from IPython.nbformat.current import read as nb_read, write
 
-from flask import Flask, request, render_template, url_for
+from flask import Flask, request, render_template, url_for, abort
 from werkzeug.exceptions import BadRequestKeyError
 
 
@@ -40,25 +35,39 @@ def custom_css():
     return ""
 
 ## form
-@app.route("/<nbname>.ipynb/form")
-@app.route("/<nbname>/form")
-def nb_form(nbname):
+def input_form(function, nbname, app_meta):
     params = {}
-    nb = json.load(open(nbname + ".ipynb"))
+    return render_template("form_submit.html", nbname=nbname,
+                           params=app_meta.get('inputs', {}).items(),
+                           desc=app_meta.get('desc', ''))
+
+def fetch_nb(nbname):
+    "Given the notebook name, do whatever it takes to fetch it locally and then pass the file path back"
+    # TODO: Support more than just local files
+    nbpath = "%s.ipynb" % nbname
+    if os.path.exists(nbpath):
+        return nbpath
+    else:
+        raise LookupError('nbpath [%s] not found' % nbpath)
+
+@app.route("/<path:nbname>.ipynb", methods=['GET','POST'])
+@app.route("/<path:nbname>", methods=['GET','POST'])
+def execute(nbname):
+
+    try:
+        nbpath = fetch_nb(nbname)
+    except LookupError as ex:
+        abort(404)
+
+    nb = json.load(open(nbpath))
     app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
-    for var, t in app_meta['inputs'].iteritems():
-        params[var] = None
-    return render_template("form_submit.html", params = params, nbname = nbname)
 
-## post
-@app.route("/<nbname>.ipynb", methods=['GET','POST'])
-@app.route("/<nbname>", methods=['GET','POST'])
-def nb_post(nbname):
-
-    print("You may submit new parameters using",url_for('nb_form', nbname=nbname))
+    # a GET request with no arguments on a notebook with 1+ expected argument results in an input form rendering
+    if len(app_meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
+        return input_form('execute', nbname, app_meta)
 
     input_cell = json.loads("""
-    { 
+    {
      "cell_type": "code",
      "collapsed": false,
      "input": [],
@@ -69,18 +78,17 @@ def nb_post(nbname):
     }
 """)
 
-    nb = json.load(open(nbname + ".ipynb"))
-    app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
+    if request.method == 'GET':
+      vals = request.args
+    else: # POST, so get from form
+      vals = request.form
 
-    for var, t in app_meta['inputs'].iteritems():
+    for var, type in app_meta['inputs'].iteritems():
         try:
-            if request.method == 'GET':
-              value = eval("repr({cast}('{expr}'))".format(cast=t, expr=request.args[var]))
-            else:
-              value = eval("repr({cast}('{expr}'))".format(cast=t, expr=request.form[var]))
+            value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
         except BadRequestKeyError as ex:
-            value = eval("repr({cast}())".format(cast=t))
-            print("BadReq for parameter key/type",var,t)
+            print("BadReq for parameter (value, type): [%s, %s]" % (var,type))
+
         input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
         
     nb['worksheets'][0]['cells'][0] = input_cell
@@ -92,8 +100,6 @@ def nb_post(nbname):
     output, resources = exporter.from_notebook_node(nb_runner.nb)
 
     return output
-
-from IPython.nbconvert.preprocessors.base import Preprocessor
 
 class AppifyNotebook(Preprocessor):
     def preprocess_cell(self, cell, resources, cell_index):
@@ -117,8 +123,15 @@ class AppServerDaemon(Daemon):
     def run(self):
         #raise NotImplementedError("flask somehow defeats daemonization, so this doesn't work")
         import logging
+        import time
+        import traceback
+
         logging.basicConfig(filename=self.stdout,level=self.loglevel)
-        app.run(debug=False, port=self.port)
+        try:
+            app.run(debug=False, port=self.port)  # daemonization doesn't work if debug=True
+        except Exception as ex:
+            logging.critical(traceback.format_exc())
+        logging.critical("looping to restart Flask app server after exception")
 
 def server_parser():
 
@@ -176,6 +189,11 @@ def serve(host=HOST, port=PORT, action='start'):
     elif action == "restart":
         print("restarting background app server")
         server.restart()
+    elif action == "status":
+        if server.running:
+            print("app server is running: PID [%s]" % server.pid)
+        else:
+            print("app server is not running")
 
 def startserver():
     args = server_parser().parse_args()
