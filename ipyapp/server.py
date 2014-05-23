@@ -90,7 +90,7 @@ def execute(nbname):
             print("BadReq for parameter (value, type): [%s, %s]" % (var,type))
 
         input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
-        
+
     nb['worksheets'][0]['cells'][0] = input_cell
 
     nb_obj      = nb_read(StringIO(json.dumps(nb)), 'json')

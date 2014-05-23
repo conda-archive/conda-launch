@@ -24,9 +24,9 @@ def get_input_file(notebook):
         log.debug("Opened tarfile. Expecting to use notebook " + appfile_ipynb)
         ## need more graceful handling here to inspect tarball contents and identify notebooks
     else:
-        raise ValueError("Unsupported extension for input: [" + notebook + 
+        raise ValueError("Unsupported extension for input: [" + notebook +
         "]. Supported formats are .ipynb or .tar")
-        
+
     return (appfile_ipynb)
 
 

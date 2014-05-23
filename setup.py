@@ -5,7 +5,10 @@
 # conda is distributed under the terms of the BSD 3-clause license.
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
-from setuptools import setup
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
 
 import versioneer
 
@@ -13,6 +16,7 @@ versioneer.versionfile_source = 'ipyapp/_version.py'
 versioneer.versionfile_build = 'ipyapp/_version.py'
 versioneer.tag_prefix = ''
 versioneer.parentdir_prefix = 'conda-launch-'
+
 
 setup(
     name                = "conda-launch",
@@ -24,17 +28,16 @@ setup(
     description         = "appify ipython notebooks",
     long_description    = open('README.md').read(),
     packages            = ['ipyapp'],
-    install_requires    = ['ipython', 'runipy', 'flask', 'requests', 'psutil', 'conda', 'conda-api'],
+    install_requires    = ['ipython', 'runipy', 'flask', 'requests',
+                           'psutil', 'conda', 'conda-api'],
 
-    entry_points        = {'console_scripts':
-            ['conda-launch = ipyapp.cli:launchcmd',
-             'conda-appserver = ipyapp.cli:startserver']
-                            },
+    scripts = ['bin/conda-appserver',
+               'bin/conda-launch'],
 
-    classifiers         = [
+    classifiers = [
         "Development Status :: 4 - Beta",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 3",
-                        ],
+    ],
 )
