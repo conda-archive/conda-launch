@@ -64,7 +64,11 @@ def launch(notebook,
     """
 
     from os.path import abspath, exists
-    from urllib import urlencode
+    try:
+        from urllib import urlencode
+    except ImportError:
+        from urllib.parse import urlencode
+
     import webbrowser
     import requests
 

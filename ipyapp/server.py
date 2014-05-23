@@ -9,7 +9,11 @@
 import os
 import json
 
-from StringIO import StringIO
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
+
 from argparse import RawDescriptionHelpFormatter
 
 from IPython.config import Config
@@ -83,7 +87,7 @@ def execute(nbname):
     else: # POST, so get from form
       vals = request.form
 
-    for var, type in app_meta['inputs'].iteritems():
+    for var, type in app_meta['inputs'].items():
         try:
             value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
         except BadRequestKeyError as ex:
