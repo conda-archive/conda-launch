@@ -29,7 +29,7 @@ setup(
     long_description    = open('README.md').read(),
     packages            = ['ipyapp'],
     install_requires    = ['ipython', 'runipy', 'flask', 'requests',
-                           'psutil', 'conda', 'conda-api'],
+                           'psutil', 'conda-api'],
 
     scripts = ['bin/conda-appserver',
                'bin/conda-launch'],

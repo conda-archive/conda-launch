@@ -9,6 +9,7 @@
 import os
 import json
 
+# TODO: handle better py3 compat
 try:
     from StringIO import StringIO
 except ImportError:
@@ -19,16 +20,16 @@ from argparse import RawDescriptionHelpFormatter
 from IPython.config import Config
 from IPython.nbconvert.exporters.html import HTMLExporter
 from IPython.nbconvert.preprocessors.base import Preprocessor
-from IPython.nbformat.current import read as nb_read, write
+from IPython.nbformat.current import read as nb_read
 
-from flask import Flask, request, render_template, url_for, abort
+from flask import Flask, request, render_template, abort, current_app
 from werkzeug.exceptions import BadRequestKeyError
 
 
-from runipy.notebook_runner import NotebookRunner, NotebookError
+from runipy.notebook_runner import NotebookRunner
 
 from ipyapp.daemon import Daemon
-from ipyapp.config import PORT, HOST, PIDFILE, LOGFILE, ERRFILE, DEBUG
+from ipyapp.config import PORT, HOST, PIDFILE, LOGFILE, ERRFILE
 
 
 app = Flask(__name__, template_folder='templates')
@@ -38,7 +39,6 @@ app = Flask(__name__, template_folder='templates')
 def custom_css():
     return ""
 
-## form
 def input_form(function, nbname, app_meta):
     params = {}
     return render_template("form_submit.html", nbname=nbname,
@@ -46,7 +46,8 @@ def input_form(function, nbname, app_meta):
                            desc=app_meta.get('desc', ''))
 
 def fetch_nb(nbname):
-    "Given the notebook name, do whatever it takes to fetch it locally and then pass the file path back"
+    """Given the notebook name, do whatever it takes to fetch it locally
+    and then pass the file path back"""
     # TODO: Support more than just local files
     nbpath = "%s.ipynb" % nbname
     if os.path.exists(nbpath):
@@ -66,7 +67,8 @@ def execute(nbname):
     nb = json.load(open(nbpath))
     app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
 
-    # a GET request with no arguments on a notebook with 1+ expected argument results in an input form rendering
+    # a GET request with no arguments on a notebook with 1+ expected argument
+    # results in an input form rendering
     if len(app_meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
         return input_form('execute', nbname, app_meta)
 
@@ -83,43 +85,28 @@ def execute(nbname):
 """)
 
     if request.method == 'GET':
-      vals = request.args
-    else: # POST, so get from form
-      vals = request.form
+        vals = request.args
+    else:  # POST, so get from form
+        vals = request.form
 
     for var, type in app_meta['inputs'].items():
         try:
             value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
         except BadRequestKeyError as ex:
-            print("BadReq for parameter (value, type): [%s, %s]" % (var,type))
+            print("BadReq for parameter (value, type): [%s, %s]" % (var, type))
 
         input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
 
     nb['worksheets'][0]['cells'][0] = input_cell
 
-    nb_obj      = nb_read(StringIO(json.dumps(nb)), 'json')
-    nb_runner   = NotebookRunner(nb_obj)
+    nb_obj = nb_read(StringIO(json.dumps(nb)), 'json')
+    nb_runner = NotebookRunner(nb_obj)
     nb_runner.run_notebook(skip_exceptions=False)
-    exporter    = CustomHTMLExporter(config=Config({'HTMLExporter':{'default_template': 'noinputs.tpl'}}))
+    exporter = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
+                            template_file='output.tpl')
     output, resources = exporter.from_notebook_node(nb_runner.nb)
 
     return output
-
-class AppifyNotebook(Preprocessor):
-    def preprocess_cell(self, cell, resources, cell_index):
-        if cell.cell_type == 'raw':
-            cell.source = ''
-        if hasattr(cell, "prompt_number"):
-            del cell.dict()['prompt_number']
-        if hasattr(cell, "input"):
-          del cell.dict()['input']
-        return cell, resources
-
-class CustomHTMLExporter(HTMLExporter):
-
-    def __init__(self, **kw):
-        super(CustomHTMLExporter, self).__init__(**kw)
-        self.register_preprocessor(AppifyNotebook, enabled=True)
 
 # TODO: Need something that will work on Windows
 class AppServerDaemon(Daemon):
@@ -137,15 +124,16 @@ class AppServerDaemon(Daemon):
             logging.critical(traceback.format_exc())
         logging.critical("looping to restart Flask app server after exception")
 
+
 def server_parser():
 
     import argparse
 
     p = argparse.ArgumentParser(
-        formatter_class = RawDescriptionHelpFormatter,
-        description = "Start a notebook app server",
+        formatter_class=RawDescriptionHelpFormatter,
+        description="Start a notebook app server",
         # help = descr, # only used in sub-parsers
-        epilog = "conda-appserver -p 5007"
+        epilog="conda-appserver -p 5007"
     )
 
     p.add_argument(
