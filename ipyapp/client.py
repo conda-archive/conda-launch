@@ -9,10 +9,18 @@
 from __future__ import print_function
 
 import argparse
-import json
-import os
-import subprocess
-import sys
+import multiprocessing as mp
+import time
+
+from os.path import abspath, exists
+
+try:
+    from urllib import urlencode
+except ImportError:
+    from urllib.parse import urlencode
+
+import webbrowser
+import requests
 
 from argparse import RawDescriptionHelpFormatter
 
@@ -63,33 +71,22 @@ def launch(notebook,
         :param format: allows specification of result format: html (default), pdf
     """
 
-    from os.path import abspath, exists
-    try:
-        from urllib import urlencode
-    except ImportError:
-        from urllib.parse import urlencode
-
-    import webbrowser
-    import requests
-
-
-
     if not server:
         import ipyapp.server
-        pid = os.fork() # need to create an independent process to start the daemonized server
-        if pid: # then we are in the client:
-            server = "http://{host}:{port}".format(host=HOST, port=PORT)
-        else: # then we are in the process where the daemonized server should start:
-            ipyapp.server.serve(host=HOST, port=PORT, action="daemon")
-            sys.exit(1) # shouldn't get here: daemonized zerver should self-exit
-
+        server_proc = mp.Process(target=ipyapp.server.serve, kwargs=dict(host=HOST, port=PORT, action="start"))
+        server_proc.daemon = False
+        server_proc.start()
+        server = "http://{host}:{port}".format(host=HOST, port=PORT)
+    else:
+        server_proc = None
 
     urlargs = []
     path    = []
     parts   = notebook.split('/')
-    last    = parts[-1]
+    last    = parts[-1].replace(".ipynb", '')
     if exists(notebook): # path to local file
-        path.append(notebook)
+        path.extend(parts[:-1])
+        path.append(last)
     elif last.isdigit(): # just digits, assume gist
         path.extend(['gist',last])
     elif notebook.startswith("http"):
@@ -120,9 +117,12 @@ def launch(notebook,
     except ValueError:
         raise ValueError("launch arguments must be valid pairs, such as 'a=7'")
 
-    url = "{prefix}/{path}?{urlargs_str}".format(prefix=server, path='/'.join(path), urlargs_str=urlargs_str)
+    if urlargs_str:
+        urlargs_str = "?" + urlargs_str
+
+    url = "{prefix}/{path}{urlargs_str}".format(prefix=server, path='/'.join(path), urlargs_str=urlargs_str)
     if mode == 'open':
-        webbrowser.open(url)
+        webbrowser.open(url, )
     elif mode == 'fetch':
         r = requests.get(url)
         if r.status_code == 200:
@@ -130,24 +130,9 @@ def launch(notebook,
         else:
             r.raise_for_status()
 
-def launchcmd():
-
-    from ipyapp.client import launch
-
-    args = launch_parser().parse_args()
-
-    try:
-        launch(
-            notebook    = args.notebook,
-            args        = args.nbargs,
-            server      = args.server,
-            env         = args.env,
-            channels    = args.channel,
-            view        = args.view
-        )
-    except ValueError as ex:
-        print("invalid arguments: " + str(ex))
-
+    if server_proc: # if we started a server process, then we're going to wait for it to finish
+        print("waiting for app server to be terminated.  Press CTRL-C to end now.")
+        server_proc.join()
 
 def launch_parser():
     # The following is from the previous life of cli as conda.cli.main_launch
@@ -159,8 +144,6 @@ def launch_parser():
     #    epilog = example,
     # )
     # common.add_parser_install(p)
-
-    import argparse
 
     p = argparse.ArgumentParser(
         formatter_class = RawDescriptionHelpFormatter,
@@ -200,6 +183,24 @@ def launch_parser():
     p.set_defaults(func=launchcmd)
 
     return p
+
+
+def launchcmd():
+
+    args = launch_parser().parse_args()
+
+    try:
+        launch(
+            notebook    = args.notebook,
+            args        = args.nbargs,
+            server      = args.server,
+            env         = args.env,
+            channels    = args.channel,
+            view        = args.view
+        )
+    except ValueError as ex:
+        print("invalid arguments: " + str(ex))
+
 
 if __name__ == "__main__":
     launchcmd()

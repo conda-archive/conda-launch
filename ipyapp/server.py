@@ -7,7 +7,11 @@
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
 import os
+import sys
 import json
+
+from glob import glob
+from Queue import Empty
 
 # TODO: handle better py3 compat
 try:
@@ -22,15 +26,14 @@ from IPython.nbconvert.exporters.html import HTMLExporter
 from IPython.nbconvert.preprocessors.base import Preprocessor
 from IPython.nbformat.current import read as nb_read
 
-from flask import Flask, request, render_template, abort, current_app
+from flask import Flask, request, redirect, render_template, abort, current_app
 from werkzeug.exceptions import BadRequestKeyError
 
 
 from runipy.notebook_runner import NotebookRunner
 
 from ipyapp.daemon import Daemon
-from ipyapp.config import PORT, HOST, PIDFILE, LOGFILE, ERRFILE
-
+from ipyapp.config import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE
 
 app = Flask(__name__, template_folder='templates')
 
@@ -39,9 +42,32 @@ app = Flask(__name__, template_folder='templates')
 def custom_css():
     return ""
 
+@app.route("/")
+def applist():
+    " generate list of all apps "
+    # TODO: for now this just lists .ipynb files in the current directory
+    #       (and eventually "registered app directories")
+    apps = [nb.replace('.ipynb','') for nb in glob('*.ipynb')]
+    return render_template("applist.html", apps=apps)
+
+if HOST == '127.0.0.1': # localhost
+    from flask import request
+    @app.route('/shutdown')
+    def shutdown_server():
+        func = request.environ.get('werkzeug.server.shutdown')
+        if func is None:
+            return (render_template('status.html',
+                                   message='ERROR: Cannot shutdown. Not running with the Werkzeug Server'),
+                    404)
+        else:
+            func()
+            return redirect("/" + PREFIX)
+
+
+
 def input_form(function, nbname, app_meta):
     params = {}
-    return render_template("form_submit.html", nbname=nbname,
+    return render_template("form.html", nbname=nbname,
                            params=app_meta.get('inputs', {}).items(),
                            desc=app_meta.get('desc', ''))
 
@@ -55,7 +81,6 @@ def fetch_nb(nbname):
     else:
         raise LookupError('nbpath [%s] not found' % nbpath)
 
-@app.route("/<path:nbname>.ipynb", methods=['GET','POST'])
 @app.route("/<path:nbname>", methods=['GET','POST'])
 def execute(nbname):
 
@@ -92,34 +117,42 @@ def execute(nbname):
     for var, type in app_meta['inputs'].items():
         try:
             value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
-        except BadRequestKeyError as ex:
+        except (BadRequestKeyError, ValueError) as ex:
             print("BadReq for parameter (value, type): [%s, %s]" % (var, type))
 
         input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
 
     nb['worksheets'][0]['cells'][0] = input_cell
 
-    nb_obj = nb_read(StringIO(json.dumps(nb)), 'json')
+    nb_obj    = nb_read(StringIO(json.dumps(nb)), 'json')
     nb_runner = NotebookRunner(nb_obj)
-    nb_runner.run_notebook(skip_exceptions=False)
-    exporter = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
-                            template_file='output.tpl')
-    output, resources = exporter.from_notebook_node(nb_runner.nb)
-
-    return output
+    try:
+        nb_runner.run_notebook(skip_exceptions=False)
+        exporter  = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
+                                 template_file='output.html')
+        output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbname=nbname))
+        return output
+    except Empty as ex:
+        return (render_template("status.html",
+                               message="ERROR: IPython Kernel timeout"),
+                504)
 
 # TODO: Need something that will work on Windows
 class AppServerDaemon(Daemon):
 
-    def run(self):
+    def run(self, debug=False):
         #raise NotImplementedError("flask somehow defeats daemonization, so this doesn't work")
         import logging
         import time
         import traceback
 
-        logging.basicConfig(filename=self.stdout,level=self.loglevel)
+        if isinstance(self.stdout, str):
+            logging.basicConfig(filename=self.stdout,level=self.loglevel)
+        else: # assume it is a file handle:
+            logging.basicConfig(stream=self.stdout,level=self.loglevel)
+
         try:
-            app.run(debug=False, port=self.port)  # daemonization doesn't work if debug=True
+            app.run(debug=debug, port=self.port)  # daemonization doesn't work if debug=True
         except Exception as ex:
             logging.critical(traceback.format_exc())
         logging.critical("looping to restart Flask app server after exception")
@@ -166,6 +199,8 @@ def serve(host=HOST, port=PORT, action='start'):
     server.host = host
     server.port = port
 
+    print("server: http://{host}:{port}".format(host=host, port=port))
+
     if action == "daemon":
         if server.running:
             print("daemonized app server already running: %s:%s" % (server.host, server.port))
@@ -173,8 +208,11 @@ def serve(host=HOST, port=PORT, action='start'):
             print("starting daemonized app server in the background")
             server.start()
     elif action == "start":
-        print("starting app server in the foreground")
-        server.run()
+        print("starting app server in the foreground -- press CTRL-C to stop")
+        # set output to STDOUT and error to STDERR instead of log files, if starting locally
+        server.stdout = sys.stdout
+        server.stderr = sys.stderr
+        server.run(debug=DEBUG)
     elif action == "stop":
         print("stopping background app server")
         server.stop()
