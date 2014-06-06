@@ -2,6 +2,7 @@
 ::moz-selection{ background-color: #E13300; color: white; }
 ::webkit-selection{ background-color: #E13300; color: white; }
 
+
 body {
     font-family: "Helvetica Neue",Helvetica,Arial,"Lucida Grande",sans-serif;
     color: #888;
@@ -64,6 +65,45 @@ p.footer{
     margin: 10px;
     border: 1px solid #D0D0D0;
     -webkit-box-shadow: 0 0 8px #D0D0D0;
+}
+
+div.prompt:empty {
+    display: none;
+}
+
+div.output_area pre {
+    color: #852121;
+    line-height: 2em;
+}
+
+.rendered_html h1 {
+    color: blue;
+}
+
+/* Overrides of notebook CSS for static HTML export */
+body {
+  overflow: visible;
+  padding: 8px;
+}
+
+div#notebook {
+  overflow: visible;
+  border-top: none;
+}
+
+@media print {
+  div.cell {
+    display: block;
+    page-break-inside: avoid;
+  }
+  div.output_wrapper {
+    display: block;
+    page-break-inside: avoid;
+  }
+  div.output {
+    display: block;
+    page-break-inside: avoid;
+  }
 }
 
 /* Form Styles */

@@ -29,7 +29,6 @@ def get_input_file(notebook):
 
     return (appfile_ipynb)
 
-
 def load_params(fname):
     ## this is the ipyapp metadata spec with defaults
     set_params = {"depends": [],
@@ -54,7 +53,6 @@ def load_params(fname):
     for param in set_params:
         log.debug(param + ":" + set_params[param])
     return set_params
-
 
 ###############################################################
 ##

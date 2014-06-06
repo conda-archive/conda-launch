@@ -1,0 +1,24 @@
+<html>
+    <head>
+        <title>Notebook Apps</title>
+        <link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}">
+    </head>
+    <body>
+        <div id="container">
+            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> | <a href="/shutdown">Shutdown</a>
+
+            <div class="title">
+                <h1>Notebook Apps</h1>
+            </div>
+            <div id="content">
+                <table>
+                    {% for app in apps %}
+                        <tr>
+                            <td><a href="/{{app}}">{{app}}</a></td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+    </body>
+</html>

@@ -30,16 +30,21 @@ class Daemon(object):
 
     Usage: subclass the Daemon class and override the run() method
     """
-    def __init__(self, pidfile, stdin=os.devnull,
-                 stdout=os.devnull, stderr=os.devnull,
-                 home_dir='.', umask=0o022, loglevel=logging.INFO):
-        self.stdin = stdin
-        self.stdout = stdout
-        self.stderr = stderr
-        self.pidfile = pidfile
+    def __init__(self,
+                 pidfile,
+                 stdin=os.devnull,
+                 stdout=os.devnull,
+                 stderr=os.devnull,
+                 home_dir='.',
+                 umask=0o022,
+                 loglevel=logging.INFO):
+        self.stdin    = stdin
+        self.stdout   = stdout
+        self.stderr   = stderr
+        self.pidfile  = pidfile
         self.home_dir = home_dir
         self.loglevel = loglevel
-        self.umask = umask
+        self.umask    = umask
 
     def daemonize(self):
         """
@@ -77,12 +82,24 @@ class Daemon(object):
         # Redirect standard file descriptors
         sys.stdout.flush()
         sys.stderr.flush()
-        si = open(self.stdin, 'r')
-        so = open(self.stdout, 'a+')
+        if isinstance(self.stdin, str):
+            si = open(self.stdin, 'r')
+        else: # assume it is a stream handler (open file handle)
+            si = self.stdin
+
+        if isinstance(self.stderr, str):
+            so = open(self.stdout, 'a+')
+        else: # assume it is a stream handler (open file handle)
+            so = self.stdout
+
         if self.stderr:
-            se = open(self.stderr, 'ab+', 0)
+            if isinstance(self.stderr, str):
+                se = open(self.stderr, 'ab+', 0)
+            else: # assume it is a stream handler (open file handle)
+                se = self.stderr
         else:
             se = so
+
         os.dup2(si.fileno(), sys.stdin.fileno())
         os.dup2(so.fileno(), sys.stdout.fileno())
         os.dup2(se.fileno(), sys.stderr.fileno())

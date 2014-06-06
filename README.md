@@ -1,18 +1,25 @@
-# Usage
+Overview
+========
+`conda launch` provides a mechanism to turn a standard IPython Notebook into a web-accessible "app".
 
+Pre-requisites
+==============
+
+* conda
+* node
+* pandoc (optional alternative to node)
+
+Basic Usage
+===========
 
 ```bash
-$ conda launch <ipython-notebook>.ipynb
+$ conda launch notebook.ipynb
 ```
 
-OR
+This will start a local app server and open your browser to the specified app
 
-```bash
-$ conda launch <tarfile_containing_notebook>.tar
-```
-
-
-# Current Capability
+Current Capability
+==================
 
 - Reads json metadata in from .ipynb file and sets (some, not all) parameters accordingly
 - Accepts .ipynb or .tar file
