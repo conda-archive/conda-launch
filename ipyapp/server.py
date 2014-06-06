@@ -6,9 +6,10 @@
 # conda is distributed under the terms of the BSD 3-clause license.
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
+import contextlib
+import json
 import os
 import sys
-import json
 
 from glob import glob
 from Queue import Empty
@@ -32,6 +33,7 @@ from werkzeug.exceptions import BadRequestKeyError
 
 from runipy.notebook_runner import NotebookRunner
 
+from ipyapp        import condaenv
 from ipyapp.daemon import Daemon
 from ipyapp.config import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE
 
@@ -47,7 +49,9 @@ def applist():
     " generate list of all apps "
     # TODO: for now this just lists .ipynb files in the current directory
     #       (and eventually "registered app directories")
-    apps = [nb.replace('.ipynb','') for nb in glob('*.ipynb')]
+    apps = [nb.replace('.ipynb','') for nb in sorted(glob('*.ipynb'))]
+    apps.extend([nb.replace('.ipynb','') for nb in sorted(glob('*/*.ipynb'))])
+
     return render_template("applist.html", apps=apps)
 
 if HOST == '127.0.0.1': # localhost
@@ -62,7 +66,12 @@ if HOST == '127.0.0.1': # localhost
         else:
             func()
             return redirect("/" + PREFIX)
-
+else:
+    @app.route('/shutdown')
+    def shutdown_server():
+        return (render_template('status.html',
+                               message='ERROR: Cannot shutdown. Not running from LOCALHOST. Contact system administrator'),
+                404)
 
 
 def input_form(function, nbname, app_meta):
@@ -75,9 +84,12 @@ def fetch_nb(nbname):
     """Given the notebook name, do whatever it takes to fetch it locally
     and then pass the file path back"""
     # TODO: Support more than just local files
-    nbpath = "%s.ipynb" % nbname
+    nbpath = "%s.ipynb" % nbname # local notebook file
+    nbpath2 = "%s/%s.ipynb" % (nbname, nbname) # directory with same-name notebook in it
     if os.path.exists(nbpath):
         return nbpath
+    elif os.path.exists(nbpath2):
+        return nbpath2
     else:
         raise LookupError('nbpath [%s] not found' % nbpath)
 
@@ -87,55 +99,88 @@ def execute(nbname):
     try:
         nbpath = fetch_nb(nbname)
     except LookupError as ex:
-        abort(404)
+        return (render_template("status.html", message="Cannot locate notebook app: " + nbname),
+                404)
 
-    nb = json.load(open(nbpath))
-    app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
+    nbdir = os.path.dirname(nbpath)
 
-    # a GET request with no arguments on a notebook with 1+ expected argument
-    # results in an input form rendering
-    if len(app_meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
-        return input_form('execute', nbname, app_meta)
-
-    input_cell = json.loads("""
-    {
-     "cell_type": "code",
-     "collapsed": false,
-     "input": [],
-     "language": "python",
-     "metadata": {},
-     "outputs": [],
-     "prompt_number": 3
-    }
-""")
-
-    if request.method == 'GET':
-        vals = request.args
-    else:  # POST, so get from form
-        vals = request.form
-
-    for var, type in app_meta['inputs'].items():
+    with cd(nbdir): # all execution now happens in the same directory as the notebook
         try:
-            value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
-        except (BadRequestKeyError, ValueError) as ex:
-            print("BadReq for parameter (value, type): [%s, %s]" % (var, type))
+            nb = json.load(open(nbpath))
+        except ValueError:
+            return (render_template("status.html", message="Invalid notebook file (not JSON): " + nbpath),
+                    501)
 
-        input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
+        try:
+            app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
+        except ValueError:
+            return (render_template("status.html", message="Invalid notebook app (last cell must be JSON): " + nbpath),
+                    501)
 
-    nb['worksheets'][0]['cells'][0] = input_cell
+        # a GET request with no arguments on a notebook with 1+ expected argument
+        # results in an input form rendering
+        if len(app_meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
+            return input_form('execute', nbname, app_meta)
 
-    nb_obj    = nb_read(StringIO(json.dumps(nb)), 'json')
-    nb_runner = NotebookRunner(nb_obj)
-    try:
-        nb_runner.run_notebook(skip_exceptions=False)
-        exporter  = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
-                                 template_file='output.html')
-        output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbname=nbname))
-        return output
-    except Empty as ex:
-        return (render_template("status.html",
-                               message="ERROR: IPython Kernel timeout"),
-                504)
+        input_cell = json.loads("""
+        {
+         "cell_type": "code",
+         "collapsed": false,
+         "input": [],
+         "language": "python",
+         "metadata": {},
+         "outputs": [],
+         "prompt_number": 3
+        }
+    """)
+
+        if request.method == 'GET':
+            vals = request.args
+        else:  # POST, so get from form
+            vals = request.form
+
+        # TODO: check if there is an env specified or dependencies
+
+        if app_meta.has_key('env'): # check for named environment first
+            pass
+        elif app_meta.has_key('deps'): # next see if there are dependencies
+            pass
+            envname = nbpath.split('/')[-1].replace('.ipynb','').replace(' ','-').lower()
+            condaenv.create(name='envname', pkgs=app_meta['deps'])
+
+        for var, type in app_meta['inputs'].items():
+            try:
+                value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
+            except (BadRequestKeyError, ValueError) as ex:
+                return (render_template("status.html", message="Invalid input: [%s, %s, %s]" % (var, type, vals[var])),
+                        400)
+
+            input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
+
+        nb['worksheets'][0]['cells'][0] = input_cell
+
+        nb_obj    = nb_read(StringIO(json.dumps(nb)), 'json')
+        nb_runner = NotebookRunner(nb_obj)
+        try:
+            nb_runner.run_notebook(skip_exceptions=False)
+            exporter  = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
+                                     template_file='output.html')
+            output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbname=nbname))
+            return output
+        except Empty as ex:
+            return (render_template("status.html",
+                                   message="ERROR: IPython Kernel timeout"),
+                    504)
+
+@contextlib.contextmanager
+def cd(path):
+    """A context manager which changes the working directory to the given
+    path, and then changes it back to its previous value on exit.
+    """
+    prev_cwd = os.getcwd()
+    os.chdir(path)
+    yield
+    os.chdir(prev_cwd)
 
 # TODO: Need something that will work on Windows
 class AppServerDaemon(Daemon):
