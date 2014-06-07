@@ -1,14 +1,17 @@
 <html>
     <head>
-        <title>{{ nbname }}</title>
+        <title>{{ nbapp }}</title>
         <link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}">
     </head>
     <body>
         <div id="container">
-            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> | <a href="/">Apps</a> | <a href="/shutdown">Shutdown</a>
+            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> |
+            <a href="/">Apps</a> | <a href="/shutdown">Shutdown</a><br>
+            <a href="?">Input Form</a> |
+            <a href="?view=t">View Only</a>
 
             <div class="title">
-                <h1>{{ nbname }}</h1>
+                <h1>{{ nbapp }}</h1>
             </div>
             <div id="content">
                 {{ desc }}

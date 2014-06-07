@@ -6,6 +6,7 @@
     <body>
         <div id="container">
             <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> | <a href="/shutdown">Shutdown</a>
+            | {{ basedir }}
 
             <div class="title">
                 <h1>Notebook Apps</h1>
@@ -14,7 +15,10 @@
                 <table>
                     {% for app in apps %}
                         <tr>
-                            <td><a href="/{{app}}">{{app}}</a></td>
+                            <td>
+                                <a href="/{{app}}">{{app}}</a>
+                                <small><i><a href="/{{app}}?view=t">view</a></i></small>
+                            </td>
                         </tr>
                     {% endfor %}
                 </table>

@@ -1,62 +1,85 @@
 Overview
 ========
-`conda launch` provides a mechanism to turn a standard IPython Notebook into a web-accessible "app".
+`conda launch` provides a mechanism to turn a standard IPython Notebook into a web-accessible "app".  Inputs can
+be provided either at the command line:
+
+```bash
+s="some string of words" n=3
+```
+
+or via a RESTful interface:
+
+```
+http://server:port/appname?s=some string of words&n=3
+```
+
+or by an auto-generated web form:
+
+```
+http://server:port/appname
+```
+
+These are used to replace the contents of the first code cell in the notebook which is then executed and the resulting
+notebook converted to HTML via `nbconvert` and passed back to the client.
+ 
+Valid inputs and their type are specified via JSON meta-data that can either be put in a `conda.app` entry on the
+notebook metadata cell, or just as a JSON string inside the last `raw_input` cell in the notebook.
+
+Presently only simple input types are supported: `int`, `float`, `str`, `bool`.
 
 Pre-requisites
 ==============
 
-* conda
-* node
-* pandoc (optional alternative to node)
+The following must be installed prior to using conda-launch:
+
+* [conda](http://conda.pydata.org)
+* [node](http://nodejs.com/)
+* [pandoc](http://johnmacfarlane.net/pandoc/) (optional alternative to node)
 
 Basic Usage
 ===========
 
+This will start a local app server and open your browser to the specified app's input form:
 ```bash
 $ conda launch notebook.ipynb
 ```
 
-This will start a local app server and open your browser to the specified app
-
-Current Capability
-==================
-
-- Reads json metadata in from .ipynb file and sets (some, not all) parameters accordingly
-- Accepts .ipynb or .tar file
-- Creates environment specified dependencies if an env of the given name does not already exist.a
-- launches notebook
-
-# TODO
-
-- Process other parameters and input formats according to this spec:
-     There will be at least  three file-types that conda launch can handle:
-
-1. .ipynb    (notebooks with special meta-data)
-2. .tar        (collections of conda packages with notebook and data)
-3. .tar.bz2  (wakari bundles)
-
-The difference between (2) and (3) is that (2) is self contained and has all the conda packages it needs contained inside.
-
-We will begin with (1) -- and define the meta-data that conda launch will use.
-
-When conda launch notebook.ipynb starts it will:
-
-1. Create a suitable environment in the user (or system) environment directory (app_<name>[N]) if it doesn't exist already
-2. Install all conda packages required by the app (in addition to ipython notebook)
-3. Copy the data files into ~/conda_app_data (unless over-ridden by app)
-4. Launch an IPython notebook in a particular directory with the notebook
-
-We define a notebook app as an .ipynb file with specific metadata added to the
-JSON file.  The metadata is under the keyname 'conda.app'.  The
-value is a dictionary of metadata:
-
-
-```
-'conda.app' : appdict
+This will start a local app server and open your browser to the specified app using `GET` inputs of `foo=42` and
+`bar=hello world` (appropriately URL-encoded):
+```bash
+$ conda launch notebook.ipynb  foo=42 bar="hello world"
 ```
 
-appdict contains:
+Input Metadata
+==============
+At the end of your notebook, create a `raw_input` cell with JSON specifying the input names and types.  The type must
+be a Python *callable* that can be used to convert a string into an instance of that type.  The `desc` key is optional
+and can be used to provide an application description that will be displayed as part of the input web form.
 
+```python
+{"inputs": {
+    "a": "int",
+    "b": "float",
+    "c": "str",
+    "d": "bool"
+    },
+ "desc": "If `d`, multiply `a` and `b` then print `c`"
+}
+```
+
+TODO
+====
+
+* specify app by URL and GIST
+* handle app's with associated resources/data in an archive file (zip or tarball)
+* conda environments for app dependencies
+* richer set of input types
+* web form input validation
+* support file inputs
+* return results to terminal (all, and specific fields)
+
+FUTURE: Enhanced App Meta-Data
+==============================
 ```
 {
 'depends': [list of requirement specification strings],  # default ipython-notebook
@@ -67,14 +90,3 @@ appdict contains:
 'data' : {'name1': <base-64 encoded binary>, 'name2': <base-64 encoded binary>}
 }
 ```
-
-Notice that everything is optional so conda launch will work on arbitrary notebook files (and will just assume an environment with ipython notebook).
-
-- Graceful error handling as noted in the code
-
-- Suggest packages to install based on import statements?
-
-- Integrate with conda so that it can be called with
-$ conda launch <myfile>.ipynb
-
-

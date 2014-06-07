@@ -15,7 +15,7 @@
 <head>
 
 <meta charset="utf-8" />
-<title>{{ nbname }}</title>
+<title>{{ resources.nbapp }}</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
@@ -37,11 +37,13 @@
 {% block body %}
 <body>
     <div id="container">
-        <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> | <a href="/">Apps</a> | <a href="/shutdown">Shutdown</a>
-
+        <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> |
+            <a href="/">Apps</a> |
+            <a href="/shutdown">Shutdown</a><br>
+            <a href="?">Input Form</a> |
+            <a href="?view=t">View Only</a>
         <div class="title">
-            <h1>{{ nbname }}</h1>
-            <a href="?">Input</a>
+            <h2 style="color:white">{{ resources.nbapp }}</h2>
         </div>
         <div id="content">
 

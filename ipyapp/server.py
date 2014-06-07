@@ -31,7 +31,7 @@ from flask import Flask, request, redirect, render_template, abort, current_app
 from werkzeug.exceptions import BadRequestKeyError
 
 
-from runipy.notebook_runner import NotebookRunner
+from runipy.notebook_runner import NotebookRunner, NotebookError
 
 from ipyapp        import condaenv
 from ipyapp.daemon import Daemon
@@ -52,7 +52,8 @@ def applist():
     apps = [nb.replace('.ipynb','') for nb in sorted(glob('*.ipynb'))]
     apps.extend([nb.replace('.ipynb','') for nb in sorted(glob('*/*.ipynb'))])
 
-    return render_template("applist.html", apps=apps)
+    basedir = os.path.abspath('.')
+    return render_template("applist.html", apps=apps, basedir=basedir)
 
 if HOST == '127.0.0.1': # localhost
     from flask import request
@@ -74,9 +75,9 @@ else:
                 404)
 
 
-def input_form(function, nbname, app_meta):
+def input_form(function, nbapp, app_meta):
     params = {}
-    return render_template("form.html", nbname=nbname,
+    return render_template("form.html", nbapp=nbapp,
                            params=app_meta.get('inputs', {}).items(),
                            desc=app_meta.get('desc', ''))
 
@@ -102,37 +103,39 @@ def execute(nbname):
         return (render_template("status.html", message="Cannot locate notebook app: " + nbname),
                 404)
 
-    nbdir = os.path.dirname(nbpath)
+    nbdir  = os.path.dirname(nbpath)
+    nbfile = os.path.basename(nbpath)
+    nbapp  = nbfile.replace(".ipynb",'')
 
     with cd(nbdir): # all execution now happens in the same directory as the notebook
         try:
-            nb = json.load(open(nbpath))
+            nb = json.load(open(nbfile))
         except ValueError:
             return (render_template("status.html", message="Invalid notebook file (not JSON): " + nbpath),
                     501)
 
         try:
-            app_meta = json.loads("".join(nb['worksheets'][0]['cells'][-1]['source']))
+            app_meta = fetch_meta(nb)
         except ValueError:
             return (render_template("status.html", message="Invalid notebook app (last cell must be JSON): " + nbpath),
                     501)
+        except KeyError:
+            app_meta = dict(inputs=[]) # a no-params notebook
 
         # a GET request with no arguments on a notebook with 1+ expected argument
         # results in an input form rendering
         if len(app_meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
-            return input_form('execute', nbname, app_meta)
+            return input_form('execute', nbapp, app_meta)
 
-        input_cell = json.loads("""
-        {
-         "cell_type": "code",
-         "collapsed": false,
-         "input": [],
-         "language": "python",
-         "metadata": {},
-         "outputs": [],
-         "prompt_number": 3
+        input_cell = {
+             "cell_type":       "code",
+             "collapsed":       False,
+             "input":           [],
+             "language":        "python",
+             "metadata":        {},
+             "outputs":         [],
+             "prompt_number":   3
         }
-    """)
 
         if request.method == 'GET':
             vals = request.args
@@ -141,36 +144,75 @@ def execute(nbname):
 
         # TODO: check if there is an env specified or dependencies
 
-        if app_meta.has_key('env'): # check for named environment first
-            pass
-        elif app_meta.has_key('deps'): # next see if there are dependencies
-            pass
-            envname = nbpath.split('/')[-1].replace('.ipynb','').replace(' ','-').lower()
-            condaenv.create(name='envname', pkgs=app_meta['deps'])
+        if 'view' in vals: # only want to view notebook app, not run it
+            run = False
+        else: # otherwise assume we will run the notebook app
+            run = True
 
-        for var, type in app_meta['inputs'].items():
-            try:
-                value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
-            except (BadRequestKeyError, ValueError) as ex:
-                return (render_template("status.html", message="Invalid input: [%s, %s, %s]" % (var, type, vals[var])),
-                        400)
+        if run:
+            if app_meta.has_key('env'): # check for named environment first
+                envname = app_meta['env']
+            elif app_meta.has_key('deps'): # next see if there are dependencies
+                envname = nbapp.replace(' ','-').lower()
+                condaenv.create(name=envname, pkgs=app_meta['deps'])
+            else:
+                envname = None # just use this interpreter
 
-            input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
+            for var in app_meta['inputs']:
+                type = app_meta['inputs'][var]
+                try:
+                    value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
+                except (BadRequestKeyError, ValueError) as ex:
+                    return (render_template("status.html", message="Invalid input: [%s, %s, %s]" % (var, type, vals[var])),
+                            400)
 
-        nb['worksheets'][0]['cells'][0] = input_cell
+                input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
+
+            insert_inputs(nb, input_cell)
 
         nb_obj    = nb_read(StringIO(json.dumps(nb)), 'json')
         nb_runner = NotebookRunner(nb_obj)
         try:
-            nb_runner.run_notebook(skip_exceptions=False)
+            if run:
+                nb_runner.run_notebook(skip_exceptions=False)
             exporter  = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
                                      template_file='output.html')
-            output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbname=nbname))
+            output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=nbapp))
             return output
         except Empty as ex:
             return (render_template("status.html",
-                                   message="ERROR: IPython Kernel timeout"),
+                        message="ERROR: %s: IPython Kernel timeout" % nbapp),
                     504)
+        except (NotImplementedError, NotebookError) as ex:
+            return (render_template("status.html",
+                        message="ERROR: %s: Notebook contains unsupported feature: %s" % (nbapp, str(ex).split(':')[-1])),
+                    504)
+
+def fetch_meta(nb):
+    " find app meta data for notebook "
+    meta = {'inputs': {}}
+    if 'conda.app' in nb['metadata']:
+        meta = nb['metadata']['conda.app']
+    else:
+        # otherwise, look from the last cell backwards for the first "raw" cell,
+        # and try to use its source as JSON meta
+        for cell in reversed(nb['worksheets'][0]['cells']):
+            if cell['cell_type'] == 'raw':
+                try:
+                    meta = json.loads("".join(cell['source']))
+                except ValueError:
+                    pass # just use the default
+                break
+
+    return meta
+
+def insert_inputs(nb, input_cell):
+    nb['worksheets'][0]['cells'][0] = input_cell
+    return
+    for i, cell in enumerate(nb['worksheets'][0]['cells']):
+        if cell['cell_type'] == 'code':
+            # replace the first code cell with the input_cell
+            nb['worksheets'][0]['cells'][i] = input_cell
 
 @contextlib.contextmanager
 def cd(path):
@@ -178,7 +220,8 @@ def cd(path):
     path, and then changes it back to its previous value on exit.
     """
     prev_cwd = os.getcwd()
-    os.chdir(path)
+    if path:
+        os.chdir(path)
     yield
     os.chdir(prev_cwd)
 
@@ -197,7 +240,8 @@ class AppServerDaemon(Daemon):
             logging.basicConfig(stream=self.stdout,level=self.loglevel)
 
         try:
-            app.run(debug=debug, port=self.port)  # daemonization doesn't work if debug=True
+            # daemonization doesn't work if relodader=True (default if debug=True)
+            app.run(debug=debug, use_reloader=False, port=self.port)
         except Exception as ex:
             logging.critical(traceback.format_exc())
         logging.critical("looping to restart Flask app server after exception")

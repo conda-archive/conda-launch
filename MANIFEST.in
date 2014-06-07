@@ -1,0 +1,2 @@
+recursive-include ipyapp/templates *
+recursive-include ipyapp/static *

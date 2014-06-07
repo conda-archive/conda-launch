@@ -95,7 +95,7 @@ def launch(notebook,
         raise NotImplementedError('launch only supports local files, URLs, and GitHub gists')
 
     if args:
-        urlargs.extend(arg.split("=") for arg in args)
+        urlargs.extend(tuple(arg.split("=")) for arg in args)
 
     if env:
         urlargs.append(('env',env))
@@ -114,8 +114,8 @@ def launch(notebook,
 
     try:
         urlargs_str = urlencode(urlargs).replace("%2F","/")
-    except ValueError:
-        raise ValueError("launch arguments must be valid pairs, such as 'a=7'")
+    except (ValueError, TypeError):
+        raise ValueError("launch arguments must be valid pairs, such as 'a=7'\n%s" % str(urlargs))
 
     if urlargs_str:
         urlargs_str = "?" + urlargs_str

@@ -12,15 +12,12 @@ except ImportError:
 
 import versioneer
 
-versioneer.versionfile_source = 'ipyapp/_version.py'
-versioneer.versionfile_build = 'ipyapp/_version.py'
 versioneer.tag_prefix = ''
 versioneer.parentdir_prefix = 'conda-launch-'
 
-
 setup(
     name                = "conda-launch",
-    version             = versioneer.get_version(),
+    version             = "0.1",
     author              = "Continuum Analytics, Inc.",
     author_email        = "ijstokes@continuum.io",
     url                 = "https://github.com/conda/conda-launch",
@@ -28,11 +25,20 @@ setup(
     description         = "appify ipython notebooks",
     long_description    = open('README.md').read(),
     packages            = ['ipyapp'],
+    include_package_data= True,
+    zip_safe            = False,
     install_requires    = ['ipython', 'runipy', 'flask', 'requests',
                            'psutil', 'conda-api'],
 
-    scripts = ['bin/conda-appserver',
-               'bin/conda-launch'],
+    entry_points = {
+        'console_scripts': [
+            'conda-appserver = ipyapp.server:startserver',
+            'conda-launch    = ipyapp.client:launchcmd'
+        ]
+    },
+
+#    scripts = ['bin/conda-appserver',
+#               'bin/conda-launch'],
 
     classifiers = [
         "Development Status :: 4 - Beta",
