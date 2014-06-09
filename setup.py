@@ -30,15 +30,8 @@ setup(
     install_requires    = ['ipython', 'runipy', 'flask', 'requests',
                            'psutil', 'conda-api'],
 
-    entry_points = {
-        'console_scripts': [
-            'conda-appserver = ipyapp.server:startserver',
-            'conda-launch    = ipyapp.client:launchcmd'
-        ]
-    },
-
-#    scripts = ['bin/conda-appserver',
-#               'bin/conda-launch'],
+    scripts = ['bin/conda-appserver',
+               'bin/conda-launch'],
 
     classifiers = [
         "Development Status :: 4 - Beta",
