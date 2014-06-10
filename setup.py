@@ -26,6 +26,9 @@ setup(
     long_description    = open('README.md').read(),
     packages            = ['ipyapp'],
     include_package_data= True,
+    package_data        = {
+            'ipyapp': ['static/*', 'templates/*'],
+    },
     zip_safe            = False,
     install_requires    = ['ipython', 'runipy', 'flask', 'requests',
                            'psutil', 'conda-api'],
