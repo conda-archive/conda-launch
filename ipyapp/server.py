@@ -19,6 +19,7 @@ try:
     from StringIO import StringIO
 except ImportError:
     from io import StringIO
+import multiprocessing as mp
 
 from argparse import RawDescriptionHelpFormatter
 
@@ -187,7 +188,10 @@ def execute(nbname):
             return (render_template("status.html",
                         message="ERROR: %s: Notebook contains unsupported feature: %s" % (nbapp, str(ex).split(':')[-1])),
                     504)
-
+        except ImportError:
+            return (render_template("status.html",
+                        message="ERROR: %s: nodejs or pandoc must be installed" % (nbapp)),
+                    504)
 def fetch_meta(nb):
     " find app meta data for notebook "
     meta = {'inputs': {}}
@@ -224,6 +228,13 @@ def cd(path):
         os.chdir(path)
     yield
     os.chdir(prev_cwd)
+
+def delayed_open(url, delay=3):
+    import time
+    import webbrowser
+
+    time.sleep(delay)
+    webbrowser.open(url)
 
 # TODO: Need something that will work on Windows
 class AppServerDaemon(Daemon):
@@ -278,7 +289,7 @@ def server_parser():
 
     return p
 
-def serve(host=HOST, port=PORT, action='start'):
+def serve(host=HOST, port=PORT, action='start', open_web=True):
     " control the server process: start, daemonize, stop, restart, depending on action "
 
     # TODO: stdout/stderr redirection to files is not working properly
@@ -288,7 +299,12 @@ def serve(host=HOST, port=PORT, action='start'):
     server.host = host
     server.port = port
 
-    print("server: http://{host}:{port}".format(host=host, port=port))
+    server_url = "http://{host}:{port}".format(host=host, port=port)
+    print("server: %s" % server_url)
+
+    if open_web:
+        proc = mp.Process(target=delayed_open, kwargs=dict(url=server_url))
+        proc.start()
 
     if action == "daemon":
         if server.running:

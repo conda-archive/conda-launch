@@ -132,7 +132,7 @@ def launch(notebook,
 
     if server_proc: # if we started a server process, then we're going to wait for it to finish
         print("waiting for app server to be terminated.  Press CTRL-C to end now.")
-        server_proc.join()
+        #server_proc.join()
 
 def launch_parser():
     # The following is from the previous life of cli as conda.cli.main_launch
