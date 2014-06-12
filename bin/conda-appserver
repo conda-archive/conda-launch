@@ -3,4 +3,5 @@
 import sys
 from ipyapp.server import startserver
 
-sys.exit(startserver())
+if __name__ == "__main__":
+    sys.exit(startserver())

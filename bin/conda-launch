@@ -3,4 +3,5 @@
 import sys
 from ipyapp.client import launchcmd
 
-sys.exit(launchcmd())
+if __name__ == "__main__":
+    sys.exit(launchcmd())
