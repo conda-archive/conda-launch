@@ -10,50 +10,41 @@
 {%- endblock empty_in_prompt %}
 
 {%- block header -%}
-<!DOCTYPE html>
-<html>
-<head>
+    <html>
+    <head>
 
-<meta charset="utf-8" />
-<title>{{ resources.nbapp }}</title>
+        <meta charset="utf-8" />
+        <title>{{ resources.nbapp }}</title>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
 
-<link rel=stylesheet type=text/css href="/static/style.css">
+        <link rel=stylesheet type=text/css href="{{ resources.moduledir }}/static/style.css">
 
-{% for css in resources.inlining.css -%}
-    <style type="text/css">
-    {{ css }}
-    </style>
-{% endfor %}
+        {% for css in resources.inlining.css -%}
+            <style type="text/css">{{ css }}</style>
+        {% endfor %}
 
-<!-- Loading mathjax macro -->
-{{ mathjax() }}
+        <!-- Loading mathjax macro -->
+        {{ mathjax() }}
 
-</head>
+    </head>
 {%- endblock header -%}
 
 {% block body %}
-<body>
-    <div id="container">
-        <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> |
-            <a href="/">Apps</a> |
-            <a href="/shutdown">Shutdown</a><br>
-            <a href="?">Input Form</a> |
-            <a href="?view=t">View Only</a>
-        <div class="title">
-            <h2 style="color:white">{{ resources.nbapp }}</h2>
-        </div>
-        <div id="content">
+    <body>
+        <div id="container">
+            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt>
 
-            <div class="container" id="notebook-container">
-                {{ super() }}
+            <div class="title">
+                <h2 style="color:white">{{ resources.nbapp }}</h2>
+            </div>
+            <div id="content">
+
+                <div class="container" id="notebook-container">
+                    {{ super() }}
+                </div>
             </div>
         </div>
-    </div>
-</body>
+    </body>
 {%- endblock body %}
-
-
-

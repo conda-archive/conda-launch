@@ -17,7 +17,7 @@ versioneer.parentdir_prefix = 'conda-launch-'
 
 setup(
     name                = "conda-launch",
-    version             = "0.1",
+    version             = "0.2",
     author              = "Continuum Analytics, Inc.",
     author_email        = "ijstokes@continuum.io",
     url                 = "https://github.com/conda/conda-launch",
@@ -31,7 +31,7 @@ setup(
     },
     zip_safe            = False,
     install_requires    = ['ipython', 'runipy', 'flask', 'requests',
-                           'psutil', 'conda-api'],
+                           'psutil', 'conda-api', 'six'],
 
     scripts = ['bin/conda-appserver',
                'bin/conda-launch'],

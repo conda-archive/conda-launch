@@ -52,39 +52,62 @@ $ conda launch notebook.ipynb  foo=42 bar="hello world"
 
 Input Metadata
 ==============
-At the end of your notebook, create a `raw_input` cell with JSON specifying the input names and types.  The type must
-be a Python *callable* that can be used to convert a string into an instance of that type.  The `desc` key is optional
-and can be used to provide an application description that will be displayed as part of the input web form.
+At the end of your notebook, create a `raw_input` cell with JSON specifying the app interface and behavior. All keys
+are optional.
+
+Alternatively, the native Notebook meta-data facility may be used.  Add a key called `conda.app` and include the JSON
+dictionary.
+
+* `name`: a name for the notebook app
+* `desc`: an application description that will be displayed as part of the input web form
+* `inputs`: a dictionary with keys matching input parameters and values that are Python *callables* that
+   can be used to convert a string into an instance of that type  
+* `env`: a local environment name to use (takes prece
+* `pkgs`: a list of package specifications that are required to run the app
+* `channels`: a list of Conda channels that will be searched for package dependencies (in addition to the
+    standard Conda package repositories)
+* `output`: a string specifying the output mode (default: `html`)
 
 ```python
-{"inputs": {
+{
+ "name": "My Notebook App",
+ "desc": "If `d`, multiply `a` and `b` then print `c`",
+ "inputs": {
     "a": "int",
     "b": "float",
     "c": "str",
     "d": "bool"
     },
- "desc": "If `d`, multiply `a` and `b` then print `c`"
+ "env": "local-env-name",
+ "pkgs": [
+    "pkgspec1",
+    "pkgspec2",
+    "pkgspec3"
+    ]
+ "channels": [
+    "http://conda.binstar.org/channel1",
+    "http://conda.binstar.org/channel2"
+    ],
+ "output": "html|md|py|pdf|stream|quiet"
 }
 ```
+
 
 TODO
 ====
 
 * specify app by URL and GIST
 * handle app's with associated resources/data in an archive file (zip or tarball)
-* conda environments for app dependencies
 * richer set of input types
 * web form input validation
 * support file inputs
 * return results to terminal (all, and specific fields)
+* allow a preamble that would setup/import type mapping functions/classes
 
 FUTURE: Enhanced App Meta-Data
 ==============================
 ```
 {
-'depends': [list of requirement specification strings],  # default ipython-notebook
-'platform-depends': {<platform> : [list of specs], <platform2> : [list of specs]}, # optional
-'appname' : default is name of notebook  # optional
 'envname' : 'name_of_app_environment' # optional, gives name of environment to create the default is 'appname'
 'filesroot' : <relative path name of where files should be placed>  # full-path for where data files should go using $HOME and $PREFIX (default is $HOME/app_name_data)
 'data' : {'name1': <base-64 encoded binary>, 'name2': <base-64 encoded binary>}

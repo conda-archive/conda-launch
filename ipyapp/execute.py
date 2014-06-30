@@ -1,180 +1,240 @@
+#!/usr/bin/env python
+
+# (c) 2012-2014 Continuum Analytics, Inc. / http://continuum.io
+# All Rights Reserved
+#
+# conda is distributed under the terms of the BSD 3-clause license.
+# Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
+
+import contextlib
 import json
 import logging
-import subprocess
+import os
+import sys
+
+from functools  import partial
+from subprocess import PIPE
+from Queue      import Empty
+
+from jinja2     import Environment, PackageLoader
+
+from IPython.nbconvert.exporters.html     import HTMLExporter
+from IPython.nbconvert.exporters.markdown import MarkdownExporter
+from IPython.nbconvert.exporters.python   import PythonExporter
+from IPython.nbformat.current             import reads_json as nb_read_json
+from runipy.notebook_runner               import NotebookRunner, NotebookError
 
 import conda_api
 
+from ipyapp.slugify import slugify
+from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS
+
 log = logging.getLogger(__name__)
 
-def get_input_file(notebook):
-    # TODO need to accept tarballs containing package data, and have conda use those
-    # presently this will handle a .ipynb file on its own
-    # OR a .tar file containing .ipynb and required ancillary data files, etc.
-    # Also eventually this should be integrated with conda search/ install functionality
-    # so app packages can be obtained from Binstar
+class NotebookAppFormatError(Exception):
+    " App Notebooks need to be JSON and contain app meta-data"
+    pass
 
-    root_fname, extn = notebook.split(".")
-    if extn == "ipynb":
-        appfile_ipynb = notebook
-    elif extn == "tar":
-        import tarfile
-        tf = tarfile.open(notebook, mode="r:*")
-        tf.extractall()
-        appfile_ipynb = root_fname + ".ipynb"
-        log.debug("Opened tarfile. Expecting to use notebook " + appfile_ipynb)
-        ## need more graceful handling here to inspect tarball contents and identify notebooks
-    else:
-        raise ValueError("Unsupported extension for input: [" + notebook +
-        "]. Supported formats are .ipynb or .tar")
+class NotebookApp(object):
+    """ Represents the state and operations to perform on an IPython Notebook that can be run as a
+        standalone Notebook App.  Not to be confused with IPython.html.notebookapp.NotebookApp.
+        Other than containing the JSON representation of the Notebook, this does not
+        contain a reference to an IPython Notebook object.
+    """
+    def __init__(self, nbpath, nbargs_txt=None, timeout=None, mode=None, format=None, output=None, env=None):
+        """ Representation of a particular instance of a Notebook App.  Can override the App-specific env (if any)
 
-    return (appfile_ipynb)
+            :param nbpath:      path to notebook app file
+            :param nbargs_txt:  notebook app arguments dictionary, all values as strings
+            :param timeout:     maximum process runtime
+            :param mode:        open [default], stream (to STDOUT), api (return result), quiet (write to disk)
+            :param format:      html (default), {pdf, markdown -- #TODO}
+            :param output:      specify a particular artifact to return from executed app #TODO
+            :param env:         environment to use for notebook app invocation
+        """
+        self.nbdir      = os.path.dirname(nbpath)
+        self.nbfile     = os.path.basename(nbpath)
+        self.name       = self.nbfile.replace(".ipynb",'')
 
-def load_params(fname):
-    ## this is the ipyapp metadata spec with defaults
-    set_params = {"depends": [],
-                  "platform_depends": {},
-                  "appname": fname,
-                  "envname": "ipynb_test",
-                  "filesroot": "$HOME",
-                  "data": {}
-                  }
-    with open(fname) as nb_file:
-        nb_metadata = json.load(nb_file)["metadata"]
-    log.debug("Inspecting notebook metadata")
-    app_metadata = nb_metadata.get("conda.app")
-    if app_metadata:
-        # load any from metadata
-        for param in app_metadata.keys():
-            set_params[param] = app_metadata[param]
-            log.debug("Assigned parameter " + param + ":" + set_params[param])
-    else:
-        log.debug("No metadata furnished in notebook.")
-    log.debug("Using parameters")
-    for param in set_params:
-        log.debug(param + ":" + set_params[param])
-    return set_params
+        self.json       = json.load(open(self.nbfile))
+        self.parse_meta() # converts meta data in NB JSON into metadata dictionary on object
+        self.desc       = self.meta.get('desc', self.name)
+        self.inputs     = self.meta.get('inputs', {})
 
-###############################################################
-##
-##  conda environment functions
-##
-###############################################################
+        # EXECUTION params
+        self.nbargs     = {}
+        if nbargs_txt:
+            self.set_nbargs(**nbargs_txt)
 
-
-def compile_packages(pkg_list, depends_list):
-    for add_pkg in depends_list:
-        pkg_list.append(add_pkg)
-    return pkg_list
-
-
-def get_unique_name(envname_base, existing_envs):
-    L = len(envname_base)
-    matches = [envname for envname in existing_envs if envname[:L] == envname_base]
-    if not matches:
-        return envname_base
-    suffix = 1
-    while (envname_base + "_" + str(suffix)) in matches:
-        suffix += 1
-    return (envname_base + "_" + str(suffix))
-
-
-def call_conda_create(set_envname, depends):
-    conda_create_env_cmd = ['create', '-y', '-q', '-n', set_envname] + depends
-    log.debug("creating conda environment with command:")
-    log.debug(conda_create_env_cmd)
-    parse_output(issue_cmd(conda_create_env_cmd, conda_api._call_conda))
-
-
-## if a satisfactory env exists and unique==False, use it
-## otherwise create an appropriate env with a unique name
-def create_conda_env(set_envname, depends, create_env=True, env_list=None):
-    if not env_list:
-        env_list = [envname.split('/')[-1] for envname in conda_api.get_envs()]
-    # default: just make a new environment
-    if create_env:
-        unique_name = get_unique_name(set_envname, env_list)
-        call_conda_create(unique_name, depends)
-        return unique_name
-    # try to find a suitable existing env
-    else:  # create_env=False
-        if set_envname in env_list:
-            log.warning("conda environment with the name " + set_envname + " already exists.")
-            try:
-                _env_output = issue_cmd(["list", "-n", set_envname],
-                                        conda_api._call_conda)
-                env_output = _env_output[0].split('\n')[2:-1]
-                existing_env_pkgs = [env_str.split()[0] for env_str in env_output]
-                missing = [pkg for pkg in depends if pkg not in existing_env_pkgs]
-            except:
-                missing = ['force_new_env']
-            if missing:
-                log.info("Existing environment named " + set_envname +
-                           " lacks the following required packages " + " ".join(missing))
-                log.info("Creating a new env instead." + set_envname)
-                return create_conda_env(set_envname, depends, True, env_list)
-            else:
-                log.info("Existing environment name " + set_envname +
-                           " satisfies requirements and will be used.")
-                return set_envname
-        # envname not found, create it
+        if timeout:
+            self.timeout = timeout
         else:
-            return create_conda_env(set_envname, depends, True, env_list)
+            self.timeout = self.meta.get('timeout', TIMEOUT)
 
-###############################################################
-##
-##  utils/ helper functions
-##
-###############################################################
+        if mode:
+            self.mode       = mode
+        else:
+            self.mode = self.meta.get('mode', MODE)
+
+        if format:
+            self.format = format
+        else:
+            self.format = self.meta.get('format', FORMAT)
+
+        if output:
+            self.output = output
+        else:
+            self.output = self.meta.get('output', None)
+
+        # ENVIRONMENT params
+
+        # figure out the app environment name: API-specified, App meta-data, App name, or (if no deps), current env
+        if env:                     # use the API-specified environment name (override)
+            self.env    = env
+        elif self.pkgs:             # if there are pkgs specified, figure out an env name
+            self.env    = self.meta.get('env', slugify(self.name))
+        else:                       # just use the current env
+            self.env    = None
+
+        self.pkgs       = self.meta.get('pkgs', [])
+        self.channels   = self.meta.get('channels', [])
 
 
-def parse_output(std_stream):
-    index = len(std_stream) - 1
-    if index == 1 and std_stream[index]:
-        log.error("ERROR MESSAGE")
-    else:
-        index = 0
-    log.error(std_stream[index])
+    def set_nbargs(self, **nbargs_txt):
+        """ convert a dictionary of parameters and string representations of those parameters into
+            their correct form using the 'inputs' type map
+        """
 
-def issue_cmd(cmd_list, call_func=subprocess.check_output):
+        input_cell = {
+             "cell_type":       "code",
+             "collapsed":       False,
+             "input":           [],
+             "language":        "python",
+             "metadata":        {},
+             "outputs":         [],
+             "prompt_number":   3
+        }
+
+        for var, type in self.inputs.items(): # iterate over all specified inputs
+            try:
+                value = nbargs_txt[var]
+                input_cell['input'].append('{var} = {type}("{value}")\n'.format(var=var, type=type, value=value))
+            except ValueError as ex:
+                raise ValueError('Input param [%s, %s] not found in arguments [%s]' % (var, type, nbargs_txt))
+
+        for input_cell_idx, cell in enumerate(self.json['worksheets'][0]['cells']):
+            if cell['cell_type'] == 'code':
+                # replace the first code cell with the input_cell
+                break
+        else:
+            input_cell_idx = 0
+
+        self.json['worksheets'][0]['cells'][input_cell_idx] = input_cell
+
+    def fetch_meta(self):
+        " find app meta data from notebook JSON "
+        self.meta = {'inputs': {}}
+        if 'conda.app' in self.json['metadata']:
+            self.meta = self.json['metadata']['conda.app']
+        else:
+            # otherwise, look from the last cell backwards for the first "raw" cell,
+            # and try to use its source as JSON meta
+            for cell in reversed(self.json['worksheets'][0]['cells']):
+                if cell['cell_type'] == 'raw':
+                    try:
+                        meta = json.loads("".join(cell['source']))
+                    except ValueError:
+                        pass # just use the default
+                    break
+
+    def set_meta(self):
+        " set conda.app JSON metadata from current NotebookApp object "
+
+        meta = dict(name=self.name,
+                    desc=self.name,
+                    inputs=self.inputs,
+                    nbargs=self.nbargs,
+                    timeout=self.timeout,
+                    output=self.output,
+                    mode=self.mode,
+                    env=self.env,
+                    channels=self.channels,
+                    pkgs=self.pkgs,
+                    )
+        self.json['metadata']['conda.app'] = meta
+
+    def startapp(self):
+        "invoke the notebook app in a separate process with the appropriate environment"
+        with cd(self.nbdir): # all execution now happens in the same directory as the notebook
+
+            if self.env: # if there is a named env, try to create it and use it
+                try:
+                    conda_api.create(name=self.env, pkgs=FIXED_DEPS+self.pkgs)
+                except conda_api.CondaEnvExistsError as ex:
+                    pass # just use the existing environment
+                env_dict=dict(name=self.env)
+            else: # use the path to the current env
+                env_dict=dict(path=conda_api.info()['default_prefix'])
+
+            args = "--stream --mode {mode}".format(mode=self.mode).split()
+            if self.output:
+                args.extend("--output {output}".format(output=self.output).split())
+
+            nbproc = conda_api.process(cmd="conda-launch", args=args, stdin=PIPE, stdout=PIPE, timeout=self.timeout,
+                                        **env_dict)
+
+            (out, err) = nbproc.communicate(input=self.json)
+
+            if err:
+                sys.stderr.write(err)
+
+        return out
+
+
+def run(nbjson, format=FORMAT):
+    """ Run a notebook app 100% from JSON, return the result in the appropriate format
+
+        :param nbjson: JSON representation of notebook app, ready to run
+        :param format: html (default), {python, markdown #TODO}
+    """
+    try: # get the app name from metadata
+        name  = nbjson['metadata']['conda.app']['name']
+    except KeyError as ex:
+        name  = "nbapp"
+
+    # create a notebook object from the JSON
+    nb_obj    = nb_read_json(nbjson)
+    nb_runner = NotebookRunner(nb_obj)
+    jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
+    template = jinja_env.get_template('status.html')
+
+    format = format.lower()
+    if format=='html':
+        Exporter = partial(HTMLExporter, template_file='output.html', resources=dict(nbapp=name))
+    elif format=='md' or format=='markdown':
+        Exporter = MarkdownExporter
+    elif format=='py' or format=='python':
+        Exporter = PythonExporter
+
     try:
-        result = call_func(cmd_list)
-        return result
-    except:
-        log.error("Unable to execute command: " + " ".join(cmd_list))
+        nb_runner.run_notebook(skip_exceptions=False)
+        exporter  = Exporter()
+        output, resources = exporter.from_notebook_node(nb_runner.nb)
+        return output
+    except Empty as ex:
+        return template.render(message="ERROR: IPython Kernel timeout")
+    except (NotImplementedError, NotebookError) as ex:
+        return template.render(message="ERROR: Notebook contains unsupported feature: %s" % str(ex).split(':')[-1])
+    except ImportError:
+        return template.render(message="ERROR: nodejs or pandoc must be installed")
 
-def execute(notebook):
-    ## set_root_prefix in conda-api
-    ## TODO graceful error if conda not found
-    conda_path = issue_cmd(["which", "conda"])
-    path_stem = conda_path.split("/bin/conda")[0]
-    conda_api.set_root_prefix(path_stem)
-
-    (appfile_ipynb, override_envname) = get_input_file(notebook)
-    conda_params = load_params(appfile_ipynb)
-    # if user names the env from command line
-    create_new_env = True
-    if override_envname:
-        conda_params['envname'] = override_envname
-        log.debug("Received envname from command line:" + conda_params['envname'])
-        create_new_env = False
-
-    # provide default packages here
-    # TODO could also try to be smart and look at import statements to suggest packages
-    # that should be installed
-    ## TODO support version specification
-    ## include a tuple for each package, version req optional
-    ## depends = ['bokeh',('ipython-notebook','2.0')] # this is just the default
-    default_pkgs = ['ipython', 'flask', 'runipy']
-    pkg_list = compile_packages(default_pkgs, conda_params['depends'])
-    env_str = '_'.join(pkg_list)
-
-    base_envname = conda_params['envname']
-    if create_new_env:
-        base_envname = base_envname + "_ipyapp_" + env_str + "_" + appfile_ipynb
-    use_envname = create_conda_env(base_envname, pkg_list, create_new_env)
-    use_path = path_stem + "/envs/" + use_envname + "/bin"
-
-    log.info("Conda environment configured")
-    log.debug("ipyapp file:" + appfile_ipynb)
-    log.debug("conda environment:" + use_envname)
-    log.debug("python path:" + use_path)
+@contextlib.contextmanager
+def cd(path):
+    """A context manager which changes the working directory to the given
+    path, and then changes it back to its previous value on exit.
+    """
+    prev_cwd = os.getcwd()
+    if path:
+        os.chdir(path)
+    yield
+    os.chdir(prev_cwd)

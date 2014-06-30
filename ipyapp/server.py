@@ -6,13 +6,11 @@
 # conda is distributed under the terms of the BSD 3-clause license.
 # Consult LICENSE.txt or http://opensource.org/licenses/BSD-3-Clause.
 
-import contextlib
 import json
 import os
 import sys
 
 from glob import glob
-from Queue import Empty
 
 # TODO: handle better py3 compat
 try:
@@ -34,9 +32,10 @@ from werkzeug.exceptions import BadRequestKeyError
 
 from runipy.notebook_runner import NotebookRunner, NotebookError
 
-from ipyapp        import condaenv
-from ipyapp.daemon import Daemon
-from ipyapp.config import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE
+from ipyapp         import condaenv
+from ipyapp.execute import NotebookApp, NotebookAppFormatError
+from ipyapp.daemon  import Daemon
+from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE
 
 app = Flask(__name__, template_folder='templates')
 
@@ -85,18 +84,21 @@ def input_form(function, nbapp, app_meta):
 def fetch_nb(nbname):
     """Given the notebook name, do whatever it takes to fetch it locally
     and then pass the file path back"""
+    nbpaths = [ nbname,
+                "%s.ipynb" % nbname, # local notebook file
+                "%s/%s.ipynb" % (nbname, nbname), # directory with same-name notebook in it
+                ]
+    for nbpath in nbpaths:
+        if os.path.exists(nbpath):
+            return nbpath
+
     # TODO: Support more than just local files
-    nbpath = "%s.ipynb" % nbname # local notebook file
-    nbpath2 = "%s/%s.ipynb" % (nbname, nbname) # directory with same-name notebook in it
-    if os.path.exists(nbpath):
-        return nbpath
-    elif os.path.exists(nbpath2):
-        return nbpath2
-    else:
-        raise LookupError('nbpath [%s] not found' % nbpath)
+
+    # if we haven't returned nbpath yet, raise a not found exception
+    raise LookupError('Notebook [%s] not found' % nbpath)
 
 @app.route("/<path:nbname>", methods=['GET','POST'])
-def execute(nbname):
+def runapp(nbname):
 
     try:
         nbpath = fetch_nb(nbname)
@@ -104,75 +106,23 @@ def execute(nbname):
         return (render_template("status.html", message="Cannot locate notebook app: " + nbname),
                 404)
 
-    nbdir  = os.path.dirname(nbpath)
-    nbfile = os.path.basename(nbpath)
-    nbapp  = nbfile.replace(".ipynb",'')
+    try:
+        nba = NotebookApp(nbpath)
+    except NotebookAppFormatError as ex:
+        return (render_template("status.html", message="Invalid app notebook file: " + nbpath),
+                501)
+    except (BadRequestKeyError, ValueError) as ex:
+        return (render_template("status.html", message="Invalid inputs: " + ex),
+                400)
+    # a GET request with no arguments on a notebook with 1+ expected argument
+    # results in an input form rendering
+    if len(nba.meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
+        return input_form('execute', nba.name, nba.meta)
 
-    with cd(nbdir): # all execution now happens in the same directory as the notebook
-        try:
-            nb = json.load(open(nbfile))
-        except ValueError:
-            return (render_template("status.html", message="Invalid notebook file (not JSON): " + nbpath),
-                    501)
+    restvars2nbvars(nba, request)
 
-        try:
-            app_meta = fetch_meta(nb)
-        except ValueError:
-            return (render_template("status.html", message="Invalid notebook app (last cell must be JSON): " + nbpath),
-                    501)
-        except KeyError:
-            app_meta = dict(inputs=[]) # a no-params notebook
+    nba.run()
 
-        # a GET request with no arguments on a notebook with 1+ expected argument
-        # results in an input form rendering
-        if len(app_meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
-            return input_form('execute', nbapp, app_meta)
-
-        input_cell = {
-             "cell_type":       "code",
-             "collapsed":       False,
-             "input":           [],
-             "language":        "python",
-             "metadata":        {},
-             "outputs":         [],
-             "prompt_number":   3
-        }
-
-        if request.method == 'GET':
-            vals = request.args
-        else:  # POST, so get from form
-            vals = request.form
-
-        # TODO: check if there is an env specified or dependencies
-
-        if 'view' in vals: # only want to view notebook app, not run it
-            run = False
-        else: # otherwise assume we will run the notebook app
-            run = True
-
-        if run:
-            if app_meta.has_key('env'): # check for named environment first
-                envname = app_meta['env']
-            elif app_meta.has_key('deps'): # next see if there are dependencies
-                envname = nbapp.replace(' ','-').lower()
-                condaenv.create(name=envname, pkgs=app_meta['deps'])
-            else:
-                envname = None # just use this interpreter
-
-            for var in app_meta['inputs']:
-                type = app_meta['inputs'][var]
-                try:
-                    value = eval("repr({type}('{val}'))".format(type=type, val=vals[var]))
-                except (BadRequestKeyError, ValueError) as ex:
-                    return (render_template("status.html", message="Invalid input: [%s, %s, %s]" % (var, type, vals[var])),
-                            400)
-
-                input_cell['input'].append('{var} = {value}\n'.format(var=var, value=value))
-
-            insert_inputs(nb, input_cell)
-
-        nb_obj    = nb_read(StringIO(json.dumps(nb)), 'json')
-        nb_runner = NotebookRunner(nb_obj)
         try:
             if run:
                 nb_runner.run_notebook(skip_exceptions=False)
@@ -180,54 +130,23 @@ def execute(nbname):
                                      template_file='output.html')
             output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=nbapp))
             return output
-        except Empty as ex:
-            return (render_template("status.html",
-                        message="ERROR: %s: IPython Kernel timeout" % nbapp),
-                    504)
-        except (NotImplementedError, NotebookError) as ex:
-            return (render_template("status.html",
-                        message="ERROR: %s: Notebook contains unsupported feature: %s" % (nbapp, str(ex).split(':')[-1])),
-                    504)
-        except ImportError:
-            return (render_template("status.html",
-                        message="ERROR: %s: nodejs or pandoc must be installed" % (nbapp)),
-                    504)
-def fetch_meta(nb):
-    " find app meta data for notebook "
-    meta = {'inputs': {}}
-    if 'conda.app' in nb['metadata']:
-        meta = nb['metadata']['conda.app']
-    else:
-        # otherwise, look from the last cell backwards for the first "raw" cell,
-        # and try to use its source as JSON meta
-        for cell in reversed(nb['worksheets'][0]['cells']):
-            if cell['cell_type'] == 'raw':
-                try:
-                    meta = json.loads("".join(cell['source']))
-                except ValueError:
-                    pass # just use the default
-                break
 
-    return meta
 
-def insert_inputs(nb, input_cell):
-    nb['worksheets'][0]['cells'][0] = input_cell
-    return
-    for i, cell in enumerate(nb['worksheets'][0]['cells']):
-        if cell['cell_type'] == 'code':
-            # replace the first code cell with the input_cell
-            nb['worksheets'][0]['cells'][i] = input_cell
+def restvars2nbvars(nba, request):
 
-@contextlib.contextmanager
-def cd(path):
-    """A context manager which changes the working directory to the given
-    path, and then changes it back to its previous value on exit.
-    """
-    prev_cwd = os.getcwd()
-    if path:
-        os.chdir(path)
-    yield
-    os.chdir(prev_cwd)
+    if request.method == 'GET':
+        vals = request.args
+    else:  # POST, so get from form
+        vals = request.form
+
+    if vals['env']:
+        nba.env =
+    # TODO: check if there is an env specified or dependencies
+
+    if 'view' in vals: # only want to view notebook app, not run it
+        run = False
+    else: # otherwise assume we will run the notebook app
+        run = True
 
 def delayed_open(url, delay=3):
     import time
