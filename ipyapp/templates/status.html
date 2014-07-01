@@ -1,18 +1,50 @@
-<html>
+{% extends 'full.tpl' %}
+
+{% block input_group -%}
+{% endblock input_group %}
+
+{%- block rawcell scoped -%}
+{%- endblock rawcell -%}
+
+{% block empty_in_prompt -%}
+{%- endblock empty_in_prompt %}
+
+{%- block header -%}
+    <html>
     <head>
-        <title>Status</title>
-        <link rel=stylesheet type=text/css href="style.css">
+
+        <meta charset="utf-8" />
+        <title>Error: {{ resources.nbapp }}</title>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+
+        <link rel=stylesheet type=text/css href="{{ resources.moduledir }}/static/style.css">
+
+        {% for css in resources.inlining.css -%}
+            <style type="text/css">{{ css }}</style>
+        {% endfor %}
+
+        <!-- Loading mathjax macro -->
+        {{ mathjax() }}
+
     </head>
+{%- endblock header -%}
+
+{% block body %}
     <body>
         <div id="container">
-            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a> | </tt><a href="/">Apps</a> | <a href="/shutdown">Shutdown</a>
+            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt>
 
             <div class="title">
-                <h1>Status</h1>
+                <h2>Error: {{ resources.nbapp }}</h2>
             </div>
             <div id="content">
-                {{ message }}
+
+                <div class="container" id="notebook-container">
+                    {{ super() }}
+                </div>
             </div>
         </div>
     </body>
-</html>
+{%- endblock body %}

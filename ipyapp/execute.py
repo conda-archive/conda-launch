@@ -21,7 +21,7 @@ from jinja2     import Environment, PackageLoader
 from IPython.nbconvert.exporters.html     import HTMLExporter
 from IPython.nbconvert.exporters.markdown import MarkdownExporter
 from IPython.nbconvert.exporters.python   import PythonExporter
-from IPython.nbformat.current             import reads_json as nb_read_json
+from IPython.nbformat.current             import reads_json as nb_read_json, new_text_cell, new_notebook, new_worksheet
 from runipy.notebook_runner               import NotebookRunner, NotebookError
 
 import conda_api
@@ -237,22 +237,41 @@ def run(nbjson, format=FORMAT, view=False):
         Exporter = MarkdownExporter
     elif format=='py' or format=='python':
         Exporter = PythonExporter
+    exporter = Exporter()
+
+    status = HTMLExporter(extra_loaders=[jinja_env.loader], template_file='status.html')
 
     try:
         if view:
             pass # then don't run it
         else:
             nb_runner.run_notebook(skip_exceptions=False)
-
-        exporter = Exporter()
         output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=name))
         return output
     except Empty as ex:
         return template.render(message="ERROR: IPython Kernel timeout")
     except (NotImplementedError, NotebookError) as ex:
-        return template.render(message="ERROR: Notebook contains unsupported feature: %s" % str(ex).split(':')[-1])
+        err = mini_markdown_nb("""
+Notebook Error
+==============
+Notebook contains unsupported feature:
+```
+{error}
+```
+""".format(error=str(ex).split(':')[-1]))
+        output, resources = status.from_notebook_node(err, resources=dict(nbapp=name))
+        return output
     except ImportError:
         return template.render(message="ERROR: nodejs or pandoc must be installed")
+
+def mini_markdown_nb(markdown):
+    "create a single text cell notebook with markdown in it"
+    nb   = new_notebook()
+    wks  = new_worksheet()
+    cell = new_text_cell('markdown', source=markdown)
+    nb['worksheets'].append(wks)
+    nb['worksheets'][0]['cells'].append(cell)
+    return nb
 
 @contextlib.contextmanager
 def cd(path):

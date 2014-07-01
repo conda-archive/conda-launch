@@ -122,19 +122,23 @@ def launchcmd():
                 nba = NotebookApp(args.notebook)
                 result = run(nba.json, view=args.view)
             else: # re-process notebook with new arguments
+
                 if "-h" in args.nbargs or "--help" in args.nbargs:
                     nba = NotebookApp(args.notebook)
-                    print("usage: conda launch {file} ".format(file=nba.nbfile), end='')
-                    for input, type in nba.inputs.items():
-                        print("{input}=[{type}] ".format(input=input, type=type), end='')
-                    print()
+                    help(nba)
                     return
 
-                nbargs_dict = dict(pair.split('=',1) for pair in args.nbargs) # convert args from list to dict
-                nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
-                                  mode=args.mode, format=args.format, output=args.output, env=args.env,
-                                  override=args.override)
-                result = nba.startapp()
+                try:
+                    nbargs_dict = dict(pair.split('=',1) for pair in args.nbargs) # convert args from list to dict
+                    nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
+                                      mode=args.mode, format=args.format, output=args.output, env=args.env,
+                                      override=args.override)
+                    result = nba.startapp()
+                except KeyError as ex:
+                    print('ERROR: Notebook parameter [%s] not found' % str(ex))
+                    nba = NotebookApp(args.notebook)
+                    help(nba)
+                    return
 
             if nba.mode == "open":
                 output_fn = "{name}-output.html".format(name=nba.name)
@@ -149,6 +153,12 @@ def launchcmd():
     except ValueError as ex:
         print("invalid arguments: " + str(ex))
 
+def help(nba):
+    print("usage: conda launch {file} ".format(file=nba.nbfile), end='')
+    for input, type in nba.inputs.items():
+        print("{input}=[{type}] ".format(input=input, type=type), end='')
+    print()
+    return
 
 if __name__ == "__main__":
     launchcmd()
