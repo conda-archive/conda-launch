@@ -25,6 +25,7 @@ from IPython.nbformat.current             import reads_json as nb_read_json
 from runipy.notebook_runner               import NotebookRunner, NotebookError
 
 import conda_api
+conda_api.set_root_prefix()
 
 from ipyapp.slugify import slugify
 from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS
@@ -41,7 +42,8 @@ class NotebookApp(object):
         Other than containing the JSON representation of the Notebook, this does not
         contain a reference to an IPython Notebook object.
     """
-    def __init__(self, nbpath, nbargs_txt=None, timeout=None, mode=None, format=None, output=None, env=None):
+    def __init__(self, nbpath, nbargs_txt=None, timeout=None, mode=None, format=None, output=None, env=None,
+                 override=False):
         """ Representation of a particular instance of a Notebook App.  Can override the App-specific env (if any)
 
             :param nbpath:      path to notebook app file
@@ -51,49 +53,64 @@ class NotebookApp(object):
             :param format:      html (default), {pdf, markdown -- #TODO}
             :param output:      specify a particular artifact to return from executed app #TODO
             :param env:         environment to use for notebook app invocation
+            :param override:    use these params (or defaults) in preference to app params, where possible
         """
+        # NOTE: override is fragile. It relies on the defaults here matching the defaults from cli and server.
+
         self.nbdir      = os.path.dirname(nbpath)
         self.nbfile     = os.path.basename(nbpath)
         self.name       = self.nbfile.replace(".ipynb",'')
 
-        self.json       = json.load(open(self.nbfile))
-        self.parse_meta() # converts meta data in NB JSON into metadata dictionary on object
+        self.json       = json.load(open(nbpath))
+        self.fetch_meta() # converts meta data in NB JSON into metadata dictionary on object
         self.desc       = self.meta.get('desc', self.name)
         self.inputs     = self.meta.get('inputs', {})
+        self.pkgs       = self.meta.get('pkgs', [])
 
         # EXECUTION params
         self.nbargs     = {}
         if nbargs_txt:
             self.set_nbargs(**nbargs_txt)
 
-        if timeout:
+        if 'timeout' in self.meta:
+            self.timeout = self.meta['timeout']
+        elif timeout:
             self.timeout = timeout
         else:
-            self.timeout = self.meta.get('timeout', TIMEOUT)
+            self.timeout = TIMEOUT
 
-        if mode:
-            self.mode       = mode
+        if 'mode' in self.meta and not override:
+            self.mode = self.meta['mode']
+        elif mode:
+            self.mode = mode
         else:
-            self.mode = self.meta.get('mode', MODE)
+            self.mode = MODE
 
-        if format:
+        if 'format' in self.meta and not override:
+            self.format = self.meta['format']
+        elif format:
             self.format = format
         else:
-            self.format = self.meta.get('format', FORMAT)
+            self.format = FORMAT
 
-        if output:
+        if 'output' in self.meta and not override:
+            self.output = self.meta['output']
+        elif output:
             self.output = output
         else:
-            self.output = self.meta.get('output', None)
+            self.output = None
 
         # ENVIRONMENT params
 
         # figure out the app environment name: API-specified, App meta-data, App name, or (if no deps), current env
-        if env:                     # use the API-specified environment name (override)
+
+        if 'env' in self.meta and not override: # use the app-embedded env name
+            self.env = self.meta['env']
+        elif env:                               # use the API-specified environment name (override)
             self.env    = env
-        elif self.pkgs:             # if there are pkgs specified, figure out an env name
-            self.env    = self.meta.get('env', slugify(self.name))
-        else:                       # just use the current env
+        elif self.pkgs:                         # if there are pkgs specified, figure out an env name
+            self.env    = slugify(self.name)
+        else:                                   # just use the current env
             self.env    = None
 
         self.pkgs       = self.meta.get('pkgs', [])
@@ -142,7 +159,7 @@ class NotebookApp(object):
             for cell in reversed(self.json['worksheets'][0]['cells']):
                 if cell['cell_type'] == 'raw':
                     try:
-                        meta = json.loads("".join(cell['source']))
+                        self.meta = json.loads("".join(cell['source']))
                     except ValueError:
                         pass # just use the default
                     break
@@ -183,42 +200,52 @@ class NotebookApp(object):
             nbproc = conda_api.process(cmd="conda-launch", args=args, stdin=PIPE, stdout=PIPE, timeout=self.timeout,
                                         **env_dict)
 
-            (out, err) = nbproc.communicate(input=self.json)
+            self.set_meta() # write the current Notebook App meta-data to the JSON so it is available to the
+                            # independent process that will run the notebook app
+            (out, err) = nbproc.communicate(input=json.dumps(self.json))
 
             if err:
                 sys.stderr.write(err)
 
         return out
 
-
-def run(nbjson, format=FORMAT):
+def run(nbjson, format=FORMAT, view=False):
     """ Run a notebook app 100% from JSON, return the result in the appropriate format
 
         :param nbjson: JSON representation of notebook app, ready to run
         :param format: html (default), {python, markdown #TODO}
+        :param view:   don't invoke notebook, just view in current form
     """
-    try: # get the app name from metadata
-        name  = nbjson['metadata']['conda.app']['name']
-    except KeyError as ex:
-        name  = "nbapp"
 
     # create a notebook object from the JSON
     nb_obj    = nb_read_json(nbjson)
     nb_runner = NotebookRunner(nb_obj)
     jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
-    template = jinja_env.get_template('status.html')
+    template  = jinja_env.get_template('status.html')
+
+    try: # get the app name from metadata
+        name  = nb_obj['metadata']['conda.app']['name']
+    except KeyError as ex:
+        name  = "nbapp"
 
     format = format.lower()
     if format=='html':
-        Exporter = partial(HTMLExporter, template_file='output.html', resources=dict(nbapp=name))
+        Exporter = partial(HTMLExporter,
+                           extra_loaders=[jinja_env.loader],
+                           template_file='output.html',
+                           resources=dict(nbapp=name))
     elif format=='md' or format=='markdown':
         Exporter = MarkdownExporter
     elif format=='py' or format=='python':
         Exporter = PythonExporter
 
     try:
-        nb_runner.run_notebook(skip_exceptions=False)
-        exporter  = Exporter()
+        if view:
+            pass # then don't run it
+        else:
+            nb_runner.run_notebook(skip_exceptions=False)
+
+        exporter = Exporter()
         output, resources = exporter.from_notebook_node(nb_runner.nb)
         return output
     except Empty as ex:

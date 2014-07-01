@@ -21,18 +21,9 @@ import multiprocessing as mp
 
 from argparse import RawDescriptionHelpFormatter
 
-from IPython.config import Config
-from IPython.nbconvert.exporters.html import HTMLExporter
-from IPython.nbconvert.preprocessors.base import Preprocessor
-from IPython.nbformat.current import read as nb_read
-
 from flask import Flask, request, redirect, render_template, abort, current_app
 from werkzeug.exceptions import BadRequestKeyError
 
-
-from runipy.notebook_runner import NotebookRunner, NotebookError
-
-from ipyapp         import condaenv
 from ipyapp.execute import NotebookApp, NotebookAppFormatError
 from ipyapp.daemon  import Daemon
 from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE
@@ -108,6 +99,7 @@ def runapp(nbname):
 
     try:
         nba = NotebookApp(nbpath)
+        restvars2nbvars(nba, request)
     except NotebookAppFormatError as ex:
         return (render_template("status.html", message="Invalid app notebook file: " + nbpath),
                 501)
@@ -119,18 +111,6 @@ def runapp(nbname):
     if len(nba.meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
         return input_form('execute', nba.name, nba.meta)
 
-    restvars2nbvars(nba, request)
-
-    nba.run()
-
-        try:
-            if run:
-                nb_runner.run_notebook(skip_exceptions=False)
-            exporter  = HTMLExporter(extra_loaders=[current_app.jinja_env.loader],
-                                     template_file='output.html')
-            output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=nbapp))
-            return output
-
 
 def restvars2nbvars(nba, request):
 
@@ -140,7 +120,7 @@ def restvars2nbvars(nba, request):
         vals = request.form
 
     if vals['env']:
-        nba.env =
+        nba.env = vals['env']
     # TODO: check if there is an env specified or dependencies
 
     if 'view' in vals: # only want to view notebook app, not run it

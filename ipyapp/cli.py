@@ -10,20 +10,19 @@ from __future__ import print_function
 
 import argparse
 import sys
-
-from os.path import abspath, exists
-
-try:
-    from urllib import urlencode
-except ImportError:
-    from urllib.parse import urlencode
-
 import webbrowser
 
 from argparse import RawDescriptionHelpFormatter
+from os.path  import abspath
+
+# TODO: could use six instead
+try:
+    from urllib import urlencode, pathname2url
+except ImportError:
+    from urllib.parse   import urlencode
+    from urllib.request import pathname2url
 
 from ipyapp.config  import MODE, FORMAT, TIMEOUT
-from ipyapp.fetch   import fetch_gist, fetch_url
 from ipyapp.execute import NotebookApp, run
 
 descr   = "Invoke an IPython Notebook as an app and display the results"
@@ -32,65 +31,7 @@ examples:
     conda launch MyNotebookApp.ipynb
 """
 
-def url2path(notebook):
-    " convert a url to a path. e.g. http://example.com/a/b.ipynb -> url/example.com/a/b.ipynb "
-    from urlparse import urlparse
-
-    url = urlparse(notebook)
-    if url.scheme == "http":
-        path = ['url']
-    elif url.scheme == "https":
-        path = ['urls']
-    path.extend([url.netloc, url.path])
-
-    return path
-
-def apprun(notebook, mode="open", *args, **kwargs):
-    """ Invoke the notebook as an app.  See ipyapp.execute.run for other parameters
-
-        :param notebook: a notebook identifier (path, gist, name)
-        :param mode: open [default],stream (to STDOUT), api (return result), quiet (write to disk)
-    """
-
-    parts   = notebook.split('/')
-    last    = parts[-1].replace(".ipynb", '')
-    if exists(notebook):
-        notebook_fp = notebook # path to local file
-    elif last.isdigit(): # just digits, assume gist
-        notebook_fp = fetch_gist(last)
-    elif notebook.startswith("http"):
-        notebook_fp = fetch_url(notebook)
-    else:
-        raise NotImplementedError('launch only supports local files, URLs, and GitHub gists -- could not resolve %s' %
-                                  notebook)
-
-    result = run(notebook_fp, *args, **kwargs)
-
-    out_fn = "%s.%s" % (notebook, format)
-    with open(out_fn, 'w') as fh:
-        fh.write(result)
-
-    if mode == 'open':
-        webbrowser.open(out_fn)
-    elif mode == 'stream':
-        print(result)
-    elif mode == 'api':
-        return result
-    elif mode == 'quiet':
-        pass # do nothing: output is written to disk
-    else:
-        pass # do nothing: output is written to disk
-
 def launch_parser():
-    # The following is from the previous life of cli as conda.cli.main_launch
-    # p = sub_parsers.add_parser(
-    #    'launch',
-    #    formatter_class = RawDescriptionHelpFormatter,
-    #    description = descr,
-    #    help = descr,
-    #    epilog = example,
-    # )
-    # common.add_parser_install(p)
 
     p = argparse.ArgumentParser(
         formatter_class = RawDescriptionHelpFormatter,
@@ -106,11 +47,6 @@ def launch_parser():
         help="view notebook app (do not execute or prompt for input)",
     )
     p.add_argument(
-        "-t", "--timeout",
-        default=TIMEOUT,
-        help="set a processing timeout",
-    )
-    p.add_argument(
         "--stream",
         action="store_true",
         default=False,
@@ -123,12 +59,12 @@ def launch_parser():
     p.add_argument(
         "-m", "--mode",
         default=MODE,
-        help="specify processing mode: [open|stream|quiet] default: open [TODO]",
+        help="specify processing mode: [open|stream|quiet] [TODO]",
     )
     p.add_argument(
         "-f", "--format",
         default=FORMAT,
-        help="result format: [html|md|py|pdf] default:html [TODO]",
+        help="result format: [html|md|py|pdf] [TODO]",
     )
     p.add_argument(
         "-c", "--channel",
@@ -136,12 +72,29 @@ def launch_parser():
         help="add a channel that will be used to look for the app [TODO]",
     )
     p.add_argument(
+        "-o", "--output",
+        help="specify a single variable to return from processed notebook [TODO]",
+    )
+    p.add_argument(
+        "--override",
+        action="store_true",
+        default=False,
+        help="override values set in notebook app",
+    )
+    p.add_argument(
+        "-t", "--timeout",
+        default=TIMEOUT,
+        help="set a processing timeout",
+    )
+    p.add_argument(
         "notebook",
+        nargs='?',
         help="notebook app name, URL, or path",
     )
     p.add_argument(
         'nbargs',
-        nargs=argparse.REMAINDER
+        nargs=argparse.REMAINDER,
+        help="arguments to pass to notebook app",
     )
 
     p.set_defaults(func=launchcmd)
@@ -154,20 +107,44 @@ def launchcmd():
     args = launch_parser().parse_args()
 
     try:
-        if args.stream: # just execute the STDIN stream in the current python environment, return result on STDOUT
-            result = run(sys.stdin, format=args.format)
-            if args.mode in "open stream".split():
-                print(result)
-            else: # don't do anything else
-                pass
+        if args.stream: # just execute the STDIN stream as JSON in the current python environment, return result on STDOUT
+            try:
+                result = run(sys.stdin.read(), format=args.format)
+                if args.mode in "open stream".split(): # in stream mode, open and tream are equivalent
+                    print(result)
+                else: # don't do anything else
+                    pass
+            except ValueError as ex:
+                print('bad notebook format: could not decode JSON')
         else: # create a notebook app object from the CLI args
-            nba = NotebookApp(args.notebook, args.nbargs, timeout=args.timeout,
-                              mode=args.mode, format=args.format, output=args.output, env=args.env)
-            result = nba.startapp()
-            if args.mode == "open":
-                output_fn = "{name}-output.html"
+
+            if args.view: # get a view of the current content, don't re-invoke
+                nba = NotebookApp(args.notebook)
+                result = run(nba.json, view=args.view)
+            else: # re-process notebook with new arguments
+                if "-h" in args.nbargs or "--help" in args.nbargs:
+                    nba = NotebookApp(args.notebook)
+                    print("usage: conda launch {file} ".format(file=nba.nbfile), end='')
+                    for input, type in nba.inputs.items():
+                        print("{input}=[{type}] ".format(input=input, type=type), end='')
+                    print()
+                    return
+
+                nbargs_dict = dict(pair.split('=') for pair in args.nbargs) # convert args from list to dict
+                nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
+                                  mode=args.mode, format=args.format, output=args.output, env=args.env,
+                                  override=args.override)
+                result = nba.startapp()
+
+            if nba.mode == "open":
+                output_fn = "{name}-output.html".format(name=nba.name)
                 open(output_fn, 'w').write(result)
-                webbrowser.open(abspath(output_fn))
+                webbrowser.open('file://' + pathname2url(abspath(output_fn)))
+            elif nba.mode == "stream":
+                print(result)
+            elif nba.mode == "quiet":
+                # do nothing
+                pass
 
     except ValueError as ex:
         print("invalid arguments: " + str(ex))
