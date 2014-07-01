@@ -232,8 +232,7 @@ def run(nbjson, format=FORMAT, view=False):
     if format=='html':
         Exporter = partial(HTMLExporter,
                            extra_loaders=[jinja_env.loader],
-                           template_file='output.html',
-                           resources=dict(nbapp=name))
+                           template_file='output.html')
     elif format=='md' or format=='markdown':
         Exporter = MarkdownExporter
     elif format=='py' or format=='python':
@@ -246,7 +245,7 @@ def run(nbjson, format=FORMAT, view=False):
             nb_runner.run_notebook(skip_exceptions=False)
 
         exporter = Exporter()
-        output, resources = exporter.from_notebook_node(nb_runner.nb)
+        output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=name))
         return output
     except Empty as ex:
         return template.render(message="ERROR: IPython Kernel timeout")

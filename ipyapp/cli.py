@@ -28,7 +28,7 @@ from ipyapp.execute import NotebookApp, run
 descr   = "Invoke an IPython Notebook as an app and display the results"
 example = """
 examples:
-    conda launch MyNotebookApp.ipynb
+    conda launch MyNotebookApp.ipynb a=12 b="some string"
 """
 
 def launch_parser():
@@ -59,12 +59,12 @@ def launch_parser():
     p.add_argument(
         "-m", "--mode",
         default=MODE,
-        help="specify processing mode: [open|stream|quiet] [TODO]",
+        help="specify processing mode: [open|stream|quiet] (default: %(default)s) [TODO] ",
     )
     p.add_argument(
         "-f", "--format",
         default=FORMAT,
-        help="result format: [html|md|py|pdf] [TODO]",
+        help="result format: [html|md|py|pdf] (default: %(default)s) [TODO]",
     )
     p.add_argument(
         "-c", "--channel",
@@ -84,7 +84,7 @@ def launch_parser():
     p.add_argument(
         "-t", "--timeout",
         default=TIMEOUT,
-        help="set a processing timeout",
+        help="set a processing timeout (default: %(default)s sec)",
     )
     p.add_argument(
         "notebook",
@@ -130,7 +130,7 @@ def launchcmd():
                     print()
                     return
 
-                nbargs_dict = dict(pair.split('=') for pair in args.nbargs) # convert args from list to dict
+                nbargs_dict = dict(pair.split('=',1) for pair in args.nbargs) # convert args from list to dict
                 nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
                                   mode=args.mode, format=args.format, output=args.output, env=args.env,
                                   override=args.override)

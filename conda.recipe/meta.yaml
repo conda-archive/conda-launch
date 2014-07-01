@@ -12,10 +12,11 @@ requirements:
   run:
     - python
     - ipython
-    - runipy
+    - setuptools
     - flask
     - requests
     - psutil
+    - runipy
     - conda-api
 
 test:
