@@ -1,7 +1,8 @@
 import os
-
+import logging
 # TODO: could (should?) look for this info from a config file
 
+LOG_LEVEL   = logging.WARNING
 # Defaults:
 
 # run

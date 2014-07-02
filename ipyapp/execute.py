@@ -12,15 +12,9 @@ import logging
 import os
 import sys
 
-from functools  import partial
 from subprocess import PIPE
 from Queue      import Empty
 
-from jinja2     import Environment, PackageLoader
-
-from IPython.nbconvert.exporters.html     import HTMLExporter
-from IPython.nbconvert.exporters.markdown import MarkdownExporter
-from IPython.nbconvert.exporters.python   import PythonExporter
 from IPython.nbformat.current             import reads_json as nb_read_json, new_text_cell, new_notebook, new_worksheet
 from runipy.notebook_runner               import NotebookRunner, NotebookError
 
@@ -28,8 +22,9 @@ import conda_api
 conda_api.set_root_prefix()
 
 from ipyapp.slugify import slugify
-from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS, TEMPLATE
+from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS, LOG_LEVEL
 
+logging.basicConfig(level=LOG_LEVEL)
 log = logging.getLogger(__name__)
 
 class NotebookAppError(Exception):
@@ -51,7 +46,7 @@ class NotebookApp(object):
         contain a reference to an IPython Notebook object.
     """
     def __init__(self, nbpath, nbargs_txt=None, timeout=None, mode=None, format=None, output=None, env=None,
-                 template=None, override=False):
+                 template=None, override=False, **kwargs):
         """ Representation of a particular instance of a Notebook App.  Can override the App-specific env (if any)
 
             :param nbpath:      path to notebook app file
@@ -77,8 +72,10 @@ class NotebookApp(object):
         self.template   = template
 
         # EXECUTION params
+        # TODO: remove the set_nbargs from init: leads to too many problems elsewhere. Do this in a subsequent step
         self.nbargs     = {}
         if nbargs_txt:
+            log.debug('notebook app args (text format): %s' % nbargs_txt)
             self.set_nbargs(**nbargs_txt)
 
         if 'timeout' in self.meta:
@@ -144,9 +141,11 @@ class NotebookApp(object):
         for var, type in self.inputs.items(): # iterate over all specified inputs
             try:
                 value = nbargs_txt[var]
-                input_cell['input'].append('{var} = {type}("{value}")\n'.format(var=var, type=type, value=value))
+                input_cell['input'].append('{var} = {type}({value!r})\n'.format(var=var, type=type, value=value))
             except ValueError as ex:
                 raise ValueError('Input param [%s, %s] not found in arguments [%s]' % (var, type, nbargs_txt))
+
+        log.debug('notebook app arguments cell:\n%s' % "".join(input_cell['input']))
 
         for input_cell_idx, cell in enumerate(self.json['worksheets'][0]['cells']):
             if cell['cell_type'] == 'code':
@@ -208,61 +207,46 @@ class NotebookApp(object):
             if self.output:
                 args.extend("--output {output}".format(output=self.output).split())
 
-            if self.template:
-                args.extend("--template {template}".format(template=self.template).split())
-
-
             nbproc = conda_api.process(cmd=cmd, args=args, timeout=self.timeout,
                                        stdin=PIPE, stdout=PIPE, stderr=PIPE,
                                        **env_dict)
 
             self.set_meta() # write the current Notebook App meta-data to the JSON so it is available to the
                             # independent process that will run the notebook app
-            (out, err) = nbproc.communicate(input=json.dumps(self.json))
+            (nbstream, err) = nbproc.communicate(input=json.dumps(self.json))
 
-            if err:
-                raise NotebookAppExecutionError(err)
+            # TODO: should probably reorganize so invocation updates this NotebookApp object with the executed notebook
 
-        return out
+            log.debug('notebook app execution output stream: %s' % nbstream)
+            log.debug('notebook app execution error stream:  %s' % err)
 
-def run(nbjson, format=FORMAT, view=False, template=TEMPLATE):
-    """ Run a notebook app 100% from JSON, return the result in the appropriate format
+            return (nbstream, err)
 
-        :param nbjson: JSON representation of notebook app, ready to run
-        :param format: html (default), {python, markdown #TODO}
+def run(nbtxt, output=None, view=False):
+    """ Run a notebook app 100% from JSON (text stream), return the JSON (text stream)
+
+        :param nbtxt: JSON representation of notebook app, ready to run
         :param view:   don't invoke notebook, just view in current form
+
+        NOTE: `view` probably isn't useful, since the input will just be output again
     """
 
+    # TODO: support output parameter to specify only returning certain attributes from notebook
     # create a notebook object from the JSON
-    nb_obj    = nb_read_json(nbjson)
+    nb_obj    = nb_read_json(nbtxt)
     nb_runner = NotebookRunner(nb_obj)
-    jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
-
     try: # get the app name from metadata
         name  = nb_obj['metadata']['conda.app']['name']
     except KeyError as ex:
         name  = "nbapp"
-
-    format = format.lower()
-    if format=='html':
-        Exporter = partial(HTMLExporter,
-                           extra_loaders=[jinja_env.loader],
-                           template_file=template)
-    elif format=='md' or format=='markdown':
-        Exporter = MarkdownExporter
-    elif format=='py' or format=='python':
-        Exporter = PythonExporter
-    exporter = Exporter()
-
-    status = HTMLExporter(extra_loaders=[jinja_env.loader], template_file='status.html')
 
     try:
         if view:
             pass # then don't run it
         else:
             nb_runner.run_notebook(skip_exceptions=False)
-        output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=name))
-        return output
+        return nb_runner.nb
+
     except Empty as ex:
         sys.stderr.write("IPython Kernel timeout")
         err = mini_markdown_nb("""
@@ -273,10 +257,10 @@ ERROR: IPython Kernel timeout
 {error}
 ```
 """.format(error=str(ex).split(':')[-1]))
-        output, resources = status.from_notebook_node(err, resources=dict(nbapp=name))
-        return output
+        return err
     except (NotImplementedError, NotebookError, ValueError) as ex:
-        sys.stderr.write(str(ex).splitlines()[-1])
+        msg = str(ex).splitlines()[-1]
+        sys.stderr.write(msg)
         err = mini_markdown_nb("""
 Notebook Error
 ==============
@@ -284,13 +268,13 @@ Notebook contains unsupported feature or bad argument:
 ```
 {error}
 ```
-""".format(error=str(ex).split(':')[-1]))
-        output, resources = status.from_notebook_node(err, resources=dict(nbapp=name))
-        return output
+""".format(error=msg))
+        return err
     except ImportError:
         msg = "nodejs or pandoc must be installed"
         sys.stderr.write(msg)
-        return msg
+        err = mini_markdown_nb(msg)
+        return err
 
 def mini_markdown_nb(markdown):
     "create a single text cell notebook with markdown in it"
@@ -311,3 +295,4 @@ def cd(path):
         os.chdir(path)
     yield
     os.chdir(prev_cwd)
+

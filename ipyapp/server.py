@@ -9,24 +9,32 @@
 import json
 import os
 import sys
+import multiprocessing as mp
 
-from glob import glob
+from os.path    import basename
+from functools  import partial
+from glob       import glob
+from logging    import info, debug
+from argparse   import RawDescriptionHelpFormatter
 
-# TODO: handle better py3 compat
+# TODO: handle better py3 compat (with six?)
 try:
     from StringIO import StringIO
 except ImportError:
     from io import StringIO
-import multiprocessing as mp
 
-from argparse import RawDescriptionHelpFormatter
-
-from flask import Flask, request, redirect, render_template, abort, current_app
+from jinja2     import Environment, PackageLoader
+from flask      import Flask, request, redirect, render_template, abort, current_app
 from werkzeug.exceptions import BadRequestKeyError
+
+from IPython.nbformat.current             import reads_json as nb_read_json
+from IPython.nbconvert.exporters.html     import HTMLExporter
+from IPython.nbconvert.exporters.markdown import MarkdownExporter
+from IPython.nbconvert.exporters.python   import PythonExporter
 
 from ipyapp.execute import run, NotebookApp, NotebookAppFormatError, NotebookAppExecutionError, NotebookAppError
 from ipyapp.daemon  import Daemon
-from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE, TIMEOUT
+from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE, TIMEOUT, FORMAT, LOG_LEVEL
 
 app = Flask(__name__, template_folder='templates')
 
@@ -51,7 +59,7 @@ if HOST == '127.0.0.1': # shutdown web option only available when running exclus
     def shutdown_server():
         func = request.environ.get('werkzeug.server.shutdown')
         if func is None:
-            return (render_template('status.html',
+            return (render_template('server_status.html',
                                    message='ERROR: Cannot shutdown. Not running with the Werkzeug Server'),
                     404)
         else:
@@ -60,7 +68,7 @@ if HOST == '127.0.0.1': # shutdown web option only available when running exclus
 else:
     @app.route('/shutdown')
     def shutdown_server():
-        return (render_template('status.html',
+        return (render_template('server_status.html',
                                message='ERROR: Cannot shutdown. Not running from LOCALHOST. Contact system administrator'),
                 404)
 
@@ -81,55 +89,103 @@ def fetch_nb(nbname):
 @app.route("/<path:nbname>", methods=['GET','POST'])
 def runapp(nbname):
 
+    err = "" # initialize error string returned by notebook app invocation -- required for exception messages
     try:
         nbpath = fetch_nb(nbname)
     except LookupError as ex:
         return (render_template("status.html", message="Cannot locate notebook app: " + nbname),
                 404)
 
-
+    jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
+    status    = HTMLExporter(extra_loaders=[current_app.jinja_env.loader], template_file='server_status.html')
 
     try:
 
-        vals = dict(env=None, timeout=TIMEOUT, output=None)
+        options = dict(env=None, timeout=TIMEOUT, output=None, view=False, format=FORMAT)
 
         if request.method == 'GET':
-            vals.update(request.args)
+            nbargs_dict = request.args.to_dict()
         else:  # POST, so get from form
-            vals.update(request.form)
+            nbargs_dict = request.form.to_dict()
 
-        if 'view' in vals and bool(vals['view']): # just view notebook, don't re-execute
-            nb      = open(nbpath).read()
-            result  = run(nb, template="server_output.html")
+        debug('options (before): %s' % options)
+        debug('nbargs_dict (before): %s' % nbargs_dict)
+
+        update_options_nbargs(options,nbargs_dict)
+
+        debug('options (before): %s' % options)
+        debug('nbargs_dict (before): %s' % nbargs_dict)
+
+        info("notebook arguments:" + str(nbargs_dict))
+
+        if options['view']: # just view notebook, don't re-execute
+            info("app view only")
+            nbtxt      = open(nbpath).read()
+            name       = basename(nbpath).replace('.ipynb', '')
 
         else:
-            # NOTE: this is unconventional: some of the "vals" are notebook parameters, and some are init params
-            nba     = NotebookApp(nbpath, vals, template="server_output.html", **vals)
-
-            # a GET request with no arguments on a notebook with 1+ expected argument
-            # results in an input form rendering
-            if len(nba.meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
-                result = render_template("form.html", nbapp=nba.name, params=nba.inputs.items(), desc=nba.desc)
+            info("creating NotebookApp")
+            nba = NotebookApp(nbpath, template="server_output.html", **options)
+            name = nba.name
+            info("nba.inputs: %s" % nba.inputs)
+            info("nbargs_dict: %s" % nbargs_dict)
+            if len(nba.inputs) > 0 and len(nba.inputs) > len(nbargs_dict) and request.method == "GET":
+                info("generate app form, since not enough inputs were provided")
+                return (render_template("form.html", nbapp=nba.name, params=nba.inputs.items(), desc=nba.desc),
+                        200)
             else:
-                result  = nba.startapp()
+                nba.set_nbargs(**nbargs_dict)
+                (nbtxt, err)  = nba.startapp()
 
-        return (result, 200)
+        if options['format']=='html':
+            Exporter = partial(HTMLExporter,
+                               extra_loaders=[current_app.jinja_env.loader],
+                               template_file="server_output.html")
+        elif options['format']=='md' or options['format']=='markdown':
+            Exporter = MarkdownExporter
+        elif options['format']=='py' or options['format']=='python':
+            Exporter = PythonExporter
+        exporter = Exporter()
+
+        nb_obj = nb_read_json(nbtxt)
+        html, resources = exporter.from_notebook_node(nb_obj, resources=dict(nbapp=name))
+
+        return (html, 200)
 
     except (IOError, ValueError, NotebookAppFormatError) as ex:
-        return (render_template("server_status.html", message="Invalid app notebook file: " + nbpath),
+        return (render_template("server_status.html",
+                                message="Notebook App [%s] invalid file: %s\n%s" % (nbpath, ex, err)),
                 501)
     except (BadRequestKeyError, KeyError, ValueError) as ex:
         return (render_template("server_status.html",
-                                message="Notebook App [%s] invalid inputs:<br>%s" % (ex, "<br>".join(web_help(nba)))),
+                                message="Notebook App [%s] invalid inputs: %s\n%s" % (nbpath, ex, err)),
                 400)
     except NotebookAppExecutionError as ex:
         return (render_template("server_status.html",
-                                message='Notebook App [%s] failed to run:<br>%s' % (nba.name, ex)),
+                                message='Notebook App [%s] failed to run: %s\n%s' % (nba.name, ex, err)),
                 400)
     except Exception as ex:
         return (render_template("server_status.html",
-                                message='Notebook App [%s] unknown error:<br>%s' % (nba.name, ex)),
+                                message='Notebook App [%s] unknown error: %s\n%s' % (nbpath, ex, err)),
                 400)
+
+
+def update_options_nbargs(options, rest_dict):
+    "Update notebook app options from REST arguments dict and remove server args from nbargs"
+    if 'timeout' in rest_dict:
+        options['timeout'] = int(rest_dict['timeout'])
+    if 'view' in rest_dict:
+        options['view'] = bool(rest_dict['view'])
+    if 'format' in rest_dict:
+        options['view'] = rest_dict['format']
+    if 'output' in rest_dict:
+        options['output'] = rest_dict['output']
+    if 'env' in rest_dict:
+        options['env'] = rest_dict['env']
+
+    for key in "timeout view env output format".split():
+        if key in rest_dict:
+            del rest_dict[key]
 
 
 def web_help(nba):
@@ -152,7 +208,6 @@ class AppServerDaemon(Daemon):
     def run(self, debug=False):
         #raise NotImplementedError("flask somehow defeats daemonization, so this doesn't work")
         import logging
-        import time
         import traceback
 
         if isinstance(self.stdout, str):
@@ -213,7 +268,7 @@ def serve(host=HOST, port=PORT, action='start', open_web=True):
     print("server: %s" % server_url)
 
     if open_web:
-        proc = mp.Process(target=delayed_open, kwargs=dict(url=server_url))
+        proc = mp.Process(target=delayed_open, kwargs=dict(url=server_url, delay=0))
         proc.start()
 
     if action == "daemon":

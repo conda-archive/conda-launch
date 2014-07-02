@@ -9,21 +9,37 @@
 from __future__ import print_function
 
 import argparse
+import json
+import logging
+import re
 import sys
 import webbrowser
 
-from argparse import RawDescriptionHelpFormatter
-from os.path  import abspath
+from argparse   import RawDescriptionHelpFormatter
+from functools  import partial
+from os.path    import abspath
 
-# TODO: could use six instead
+# TODO: use six instead? added dependency...
 try:
-    from urllib import urlencode, pathname2url
+    from urllib         import urlencode
+    from urllib         import pathname2url
 except ImportError:
     from urllib.parse   import urlencode
     from urllib.request import pathname2url
 
-from ipyapp.config  import MODE, FORMAT, TIMEOUT, TEMPLATE
+from jinja2     import Environment, PackageLoader
+
+from IPython.nbformat.current             import reads_json as nb_read_json
+from IPython.nbconvert.exporters.html     import HTMLExporter
+from IPython.nbconvert.exporters.markdown import MarkdownExporter
+from IPython.nbconvert.exporters.python   import PythonExporter
+
+
+from ipyapp.config  import MODE, FORMAT, TIMEOUT, TEMPLATE, LOG_LEVEL
 from ipyapp.execute import NotebookApp, NotebookAppExecutionError, run
+
+logging.basicConfig(level=LOG_LEVEL)
+log = logging.getLogger(__name__)
 
 descr   = "Invoke an IPython Notebook as an app and display the results"
 example = """
@@ -109,34 +125,65 @@ def launch_parser():
 
 def launchcmd():
 
+    err = "" # initialize error string returned by invoking notebook app (used in exception messages)
+
     try:
         args = launch_parser().parse_args()
 
         if "-h" in args.nbargs or "--help" in args.nbargs: # print help for this notebook and exit
 
+            log.debug('notebook app help')
             nba = NotebookApp(args.notebook)
             help(nba)
             return 0
 
         elif args.stream: # just execute the STDIN stream as JSON in the current python environment, return result on STDOUT
 
-            nbjson = sys.stdin.read()
-            result = run(nbjson, format=args.format, template=args.template)
-            print(result)
+            log.debug('notebook app stream processing')
+            nbtxt = sys.stdin.read()
+            nbjson = run(nbtxt, args.output, args.view)
+            print(json.dumps(nbjson))
             return 0
 
         elif args.view: # get a view of the current content, don't re-invoke
 
+            log.debug('notebook app view only')
             nba = NotebookApp(args.notebook)
-            result = run(nba.json, view=args.view)
+            nbtxt = run(json.dumps(nba.json), view=args.view)
 
         else: # regular notebook app processing
 
+            log.debug('notebook app regular execution')
             nbargs_dict = dict(pair.split('=',1) for pair in args.nbargs) # convert args from list to dict
-            nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
+            nba = NotebookApp(args.notebook, timeout=args.timeout,
                               mode=args.mode, format=args.format, output=args.output, env=args.env,
                               override=args.override)
-            result = nba.startapp()
+            nba.set_nbargs(**nbargs_dict)
+            (nbtxt, err) = nba.startapp()
+
+            err2exception(err)
+
+            log.debug('finished regular execution')
+
+
+        jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
+        template = jinja_env.get_template('status.html')
+
+        format = args.format.lower()
+        if format=='html':
+            Exporter = partial(HTMLExporter,
+                               extra_loaders=[jinja_env.loader],
+                               template_file="output.html")
+        elif format=='md' or format=='markdown':
+            Exporter = MarkdownExporter
+        elif format=='py' or format=='python':
+            Exporter = PythonExporter
+        exporter = Exporter()
+
+        log.debug('create notebook object (JSON) from JSON text string')
+        nb_obj = nb_read_json(nbtxt)
+        log.debug('convert notebook to HTML via exporter')
+        result, resources = exporter.from_notebook_node(nb_obj, resources=dict(nbapp=nba.name))
 
         if nba.mode == "open":
             output_fn = "{name}-output.html".format(name=nba.name)
@@ -152,20 +199,34 @@ def launchcmd():
         sys.stderr.write('ERROR: Notebook App [%s] could not be opened\n' % args.notebook)
         return 1
     except ValueError as ex:
-        sys.stderr.write('ERROR: Notebook App: could not decode JSON stream\n')
+        sys.stderr.write('ERROR: Notebook App: could not decode JSON stream\n%s\n' % err)
+        sys.stderr.write(format_exception(ex))
         return 1
-    except KeyError as ex:
-        sys.stderr.write('ERROR: Notebook App parameter [%s] not found\n' % str(ex))
-        nba = NotebookApp(args.notebook) # need to re-create without other init params, just file
+    except TypeError as ex:
+        sys.stderr.write('ERROR: Notebook App parameter error\n%s' % str(ex))
         help(nba)
         return 2
     except NotebookAppExecutionError as ex:
-        sys.stderr.write('ERROR: Notebook App [%s] failed to run:\n%s\n' % (args.notebook, ex))
+        sys.stderr.write('ERROR: Notebook App [%s] failed to run:\n%s\n%s\n' % (args.notebook, err, ex))
         help(nba) # created OK, so can use nba
         return 3
     except Exception as ex:
-        sys.stderr.write('ERROR: Notebook App unknown error: %s\n' % ex)
+        sys.stderr.write('ERROR: Notebook App unknown error: %s\n%s\n' % (err, ex))
+        sys.stderr.write(format_exception(ex))
+
         return 4
+
+
+def err2exception(err):
+    if 'ValueError' in err:
+        err_match = re.search("ValueError:(.*)\n", err)
+        var_match = re.search("---->\s*\d+\s*(.*)\n", err)
+        msg = 'Parameter value conversion error:\n'
+        if var_match:
+            msg += var_match.group(1) + "\n"
+        if err_match:
+            msg += err_match.group(1) + "\n"
+        raise TypeError(msg)
 
 def help(nba):
     print("usage: conda launch {file} ".format(file=nba.nbfile), end='')
@@ -173,6 +234,21 @@ def help(nba):
         print("{input}=[{type}] ".format(input=input, type=type), end='')
     print()
     return
+
+import traceback
+
+def format_exception(e):
+    exception_list = traceback.format_stack()
+    exception_list = exception_list[:-2]
+    exception_list.extend(traceback.format_tb(sys.exc_info()[2]))
+    exception_list.extend(traceback.format_exception_only(sys.exc_info()[0], sys.exc_info()[1]))
+
+    exception_str = "Traceback (most recent call last):\n"
+    exception_str += "".join(exception_list)
+    # Removing the last \n
+    exception_str = exception_str[:-1]
+
+    return exception_str
 
 if __name__ == "__main__":
     launchcmd()
