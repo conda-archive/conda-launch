@@ -22,7 +22,7 @@ except ImportError:
     from urllib.parse   import urlencode
     from urllib.request import pathname2url
 
-from ipyapp.config  import MODE, FORMAT, TIMEOUT
+from ipyapp.config  import MODE, FORMAT, TIMEOUT, TEMPLATE
 from ipyapp.execute import NotebookApp, NotebookAppExecutionError, run
 
 descr   = "Invoke an IPython Notebook as an app and display the results"
@@ -87,6 +87,11 @@ def launch_parser():
         help="set a processing timeout (default: %(default)s sec)",
     )
     p.add_argument(
+        "--template",
+        default=TEMPLATE,
+        help="specify an alternative output template file",
+    )
+    p.add_argument(
         "notebook",
         nargs='?',
         help="notebook app name, URL, or path",
@@ -116,7 +121,7 @@ def launchcmd():
         elif args.stream: # just execute the STDIN stream as JSON in the current python environment, return result on STDOUT
 
             nbjson = sys.stdin.read()
-            result = run(nbjson, format=args.format)
+            result = run(nbjson, format=args.format, template=args.template)
             print(result)
             return 0
 

@@ -28,7 +28,7 @@ import conda_api
 conda_api.set_root_prefix()
 
 from ipyapp.slugify import slugify
-from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS
+from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS, TEMPLATE
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class NotebookApp(object):
         contain a reference to an IPython Notebook object.
     """
     def __init__(self, nbpath, nbargs_txt=None, timeout=None, mode=None, format=None, output=None, env=None,
-                 override=False):
+                 template=None, override=False):
         """ Representation of a particular instance of a Notebook App.  Can override the App-specific env (if any)
 
             :param nbpath:      path to notebook app file
@@ -74,6 +74,7 @@ class NotebookApp(object):
         self.desc       = self.meta.get('desc', self.name)
         self.inputs     = self.meta.get('inputs', {})
         self.pkgs       = self.meta.get('pkgs', [])
+        self.template   = template
 
         # EXECUTION params
         self.nbargs     = {}
@@ -207,6 +208,10 @@ class NotebookApp(object):
             if self.output:
                 args.extend("--output {output}".format(output=self.output).split())
 
+            if self.template:
+                args.extend("--template {template}".format(template=self.template).split())
+
+
             nbproc = conda_api.process(cmd=cmd, args=args, timeout=self.timeout,
                                        stdin=PIPE, stdout=PIPE, stderr=PIPE,
                                        **env_dict)
@@ -220,7 +225,7 @@ class NotebookApp(object):
 
         return out
 
-def run(nbjson, format=FORMAT, view=False):
+def run(nbjson, format=FORMAT, view=False, template=TEMPLATE):
     """ Run a notebook app 100% from JSON, return the result in the appropriate format
 
         :param nbjson: JSON representation of notebook app, ready to run
@@ -232,7 +237,6 @@ def run(nbjson, format=FORMAT, view=False):
     nb_obj    = nb_read_json(nbjson)
     nb_runner = NotebookRunner(nb_obj)
     jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
-    template  = jinja_env.get_template('status.html')
 
     try: # get the app name from metadata
         name  = nb_obj['metadata']['conda.app']['name']
@@ -243,7 +247,7 @@ def run(nbjson, format=FORMAT, view=False):
     if format=='html':
         Exporter = partial(HTMLExporter,
                            extra_loaders=[jinja_env.loader],
-                           template_file='output.html')
+                           template_file=template)
     elif format=='md' or format=='markdown':
         Exporter = MarkdownExporter
     elif format=='py' or format=='python':

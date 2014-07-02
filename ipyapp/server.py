@@ -24,9 +24,9 @@ from argparse import RawDescriptionHelpFormatter
 from flask import Flask, request, redirect, render_template, abort, current_app
 from werkzeug.exceptions import BadRequestKeyError
 
-from ipyapp.execute import NotebookApp, NotebookAppFormatError
+from ipyapp.execute import run, NotebookApp, NotebookAppFormatError, NotebookAppExecutionError, NotebookAppError
 from ipyapp.daemon  import Daemon
-from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE
+from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE, TIMEOUT
 
 app = Flask(__name__, template_folder='templates')
 
@@ -38,7 +38,7 @@ def custom_css():
 @app.route("/")
 def applist():
     " generate list of all apps "
-    # TODO: for now this just lists .ipynb files in the current directory
+    # TODO: for now this just lists .ipynb files in the current directory and one directory down
     #       (and eventually "registered app directories")
     apps = [nb.replace('.ipynb','') for nb in sorted(glob('*.ipynb'))]
     apps.extend([nb.replace('.ipynb','') for nb in sorted(glob('*/*.ipynb'))])
@@ -46,8 +46,7 @@ def applist():
     basedir = os.path.abspath('.')
     return render_template("applist.html", apps=apps, basedir=basedir)
 
-if HOST == '127.0.0.1': # localhost
-    from flask import request
+if HOST == '127.0.0.1': # shutdown web option only available when running exclusively on localhost
     @app.route('/shutdown')
     def shutdown_server():
         func = request.environ.get('werkzeug.server.shutdown')
@@ -65,16 +64,8 @@ else:
                                message='ERROR: Cannot shutdown. Not running from LOCALHOST. Contact system administrator'),
                 404)
 
-
-def input_form(function, nbapp, app_meta):
-    params = {}
-    return render_template("form.html", nbapp=nbapp,
-                           params=app_meta.get('inputs', {}).items(),
-                           desc=app_meta.get('desc', ''))
-
 def fetch_nb(nbname):
-    """Given the notebook name, do whatever it takes to fetch it locally
-    and then pass the file path back"""
+    """Given the notebook name, find it locally and return the full path"""
     nbpaths = [ nbname,
                 "%s.ipynb" % nbname, # local notebook file
                 "%s/%s.ipynb" % (nbname, nbname), # directory with same-name notebook in it
@@ -83,11 +74,10 @@ def fetch_nb(nbname):
         if os.path.exists(nbpath):
             return nbpath
 
-    # TODO: Support more than just local files
-
     # if we haven't returned nbpath yet, raise a not found exception
     raise LookupError('Notebook [%s] not found' % nbpath)
 
+# FIXME: Currently `nbname` could probably have relative or `..` paths that will access unintended files
 @app.route("/<path:nbname>", methods=['GET','POST'])
 def runapp(nbname):
 
@@ -97,36 +87,57 @@ def runapp(nbname):
         return (render_template("status.html", message="Cannot locate notebook app: " + nbname),
                 404)
 
+
+
     try:
-        nba = NotebookApp(nbpath)
-        restvars2nbvars(nba, request)
-    except NotebookAppFormatError as ex:
-        return (render_template("status.html", message="Invalid app notebook file: " + nbpath),
+
+        vals = dict(env=None, timeout=TIMEOUT, output=None)
+
+        if request.method == 'GET':
+            vals.update(request.args)
+        else:  # POST, so get from form
+            vals.update(request.form)
+
+        if 'view' in vals and bool(vals['view']): # just view notebook, don't re-execute
+            nb      = open(nbpath).read()
+            result  = run(nb, template="server_output.html")
+
+        else:
+            # NOTE: this is unconventional: some of the "vals" are notebook parameters, and some are init params
+            nba     = NotebookApp(nbpath, vals, template="server_output.html", **vals)
+
+            # a GET request with no arguments on a notebook with 1+ expected argument
+            # results in an input form rendering
+            if len(nba.meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
+                result = render_template("form.html", nbapp=nba.name, params=nba.inputs.items(), desc=nba.desc)
+            else:
+                result  = nba.startapp()
+
+        return (result, 200)
+
+    except (IOError, ValueError, NotebookAppFormatError) as ex:
+        return (render_template("server_status.html", message="Invalid app notebook file: " + nbpath),
                 501)
-    except (BadRequestKeyError, ValueError) as ex:
-        return (render_template("status.html", message="Invalid inputs: " + ex),
+    except (BadRequestKeyError, KeyError, ValueError) as ex:
+        return (render_template("server_status.html",
+                                message="Notebook App [%s] invalid inputs:<br>%s" % (ex, "<br>".join(web_help(nba)))),
                 400)
-    # a GET request with no arguments on a notebook with 1+ expected argument
-    # results in an input form rendering
-    if len(nba.meta['inputs']) > 0 and request.method == 'GET' and len(request.args) == 0:
-        return input_form('execute', nba.name, nba.meta)
+    except NotebookAppExecutionError as ex:
+        return (render_template("server_status.html",
+                                message='Notebook App [%s] failed to run:<br>%s' % (nba.name, ex)),
+                400)
+    except Exception as ex:
+        return (render_template("server_status.html",
+                                message='Notebook App [%s] unknown error:<br>%s' % (nba.name, ex)),
+                400)
 
 
-def restvars2nbvars(nba, request):
+def web_help(nba):
+    params = []
+    for input, type in nba.inputs.items():
+        params.append("{input}=[{type}] ".format(input=input, type=type))
+    return params
 
-    if request.method == 'GET':
-        vals = request.args
-    else:  # POST, so get from form
-        vals = request.form
-
-    if vals['env']:
-        nba.env = vals['env']
-    # TODO: check if there is an env specified or dependencies
-
-    if 'view' in vals: # only want to view notebook app, not run it
-        run = False
-    else: # otherwise assume we will run the notebook app
-        run = True
 
 def delayed_open(url, delay=3):
     import time

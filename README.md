@@ -103,6 +103,10 @@ dictionary.
 }
 ```
 
+Notes
+=====
+* `matplotlib` inline graphics will require the notebook to have a line (early on) with the magic `%matplotlib inline`
+
 TODO
 ====
 

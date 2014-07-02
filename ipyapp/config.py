@@ -9,6 +9,7 @@ FORMAT      = 'html' # output format defaults to HTML
 MODE        = 'open' # processing mode defaults to "open results"
 TIMEOUT     = 10     # seconds
 FIXED_DEPS  = "ipython ipython-notebook runipy jinja2 six setuptools conda-api conda-launch".split()
+TEMPLATE    = "output.html"
 
 # server
 HOST    = "127.0.0.1"
