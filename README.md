@@ -1,8 +1,11 @@
 Overview
 ========
 `conda launch` provides a mechanism to turn a standard IPython Notebook into an
-"app" with both command line and web-based interfaces.  Inputs can be provided
-either at the command line:
+"app" with both command line and web-based interfaces.  The Notebooks remain
+100% regular IPython Notebooks, so all other tools continue to work (IPython
+Notebook server, `nbconvert`, etc.)
+
+Inputs can be provided either at the command line:
 
 ```bash
 s="some string of words" n=3
@@ -20,6 +23,10 @@ or by an auto-generated web form:
 http://server:port/appname
 ```
 
+See the [Example
+Apps](https://github.com/conda/conda-launch/tree/master/examples) for some
+simple IPython Notebook examples of how this can be done in practice.
+
 These inputs are passed into a copy of the Notebook as the *first code cell*,
 with parameters cast to their appropriate type using an *input specification*
 embedded in the notebook.  The notebook is then executed and the results
@@ -28,11 +35,24 @@ or passed back on the command line.
  
 The *input specification* is done via JSON meta-data that can either be put in
 a `conda.app` entry on the notebook metadata cell, inside the last `raw_input`
-cell in the notebook.
+cell in the notebook.  Details of the format are below.
 
 Presently only simple input types are fully supported: `int`, `float`, `str`,
 `bool`.  Built-in container types (`dict`, `list`, `set`, `tuple`) work only
 under limited circumstances.
+
+Dependencies
+============
+The metadata can also include dependency specifications based on [Conda
+packages](http://conda.pydata.org).  A sandbox environment will be created for
+the app if necessary and re-used on subsequent app invocations.  This allows
+packages that aren't in the Python Standard Library to be used.  The free
+[Conda Package Repository](http://repo.continuum.io/pkgs/free/) contains most
+popular Python packages that aren't in the PSL, however
+[Binstar](http://binstar.org/) can be used for other custom user packages, and
+the the app creator can add arbitrary *Binstar Channels* to the app metadata
+specification -- these will be used to search for the dependencies for the app
+sandbox environment that conda-launch will create.
 
 Pre-requisites
 ==============
@@ -58,7 +78,7 @@ directory and in the immediate sub-directories, allowing them to be run via a
 persistent app server:
 
 ```bash
-$ conda appserver
+$ conda appserver start
 ```
 
 Input Metadata
