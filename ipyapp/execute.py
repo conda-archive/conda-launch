@@ -32,8 +32,16 @@ from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS
 
 log = logging.getLogger(__name__)
 
-class NotebookAppFormatError(Exception):
-    " App Notebooks need to be JSON and contain app meta-data"
+class NotebookAppError(Exception):
+    " General Notebook App error "
+    pass
+
+class NotebookAppExecutionError(NotebookAppError):
+    " Notebook App error during execution "
+    pass
+
+class NotebookAppFormatError(NotebookAppError):
+    " Notebook Apps need to be JSON and contain app meta-data"
     pass
 
 class NotebookApp(object):
@@ -193,19 +201,22 @@ class NotebookApp(object):
             else: # use the path to the current env
                 env_dict=dict(path=conda_api.info()['default_prefix'])
 
-            args = "--stream --mode {mode}".format(mode=self.mode).split()
+            cmd  = "conda"
+            args = "launch --stream --mode {mode}".format(mode=self.mode).split()
+
             if self.output:
                 args.extend("--output {output}".format(output=self.output).split())
 
-            nbproc = conda_api.process(cmd="conda-launch", args=args, stdin=PIPE, stdout=PIPE, timeout=self.timeout,
-                                        **env_dict)
+            nbproc = conda_api.process(cmd=cmd, args=args, timeout=self.timeout,
+                                       stdin=PIPE, stdout=PIPE, stderr=PIPE,
+                                       **env_dict)
 
             self.set_meta() # write the current Notebook App meta-data to the JSON so it is available to the
                             # independent process that will run the notebook app
             (out, err) = nbproc.communicate(input=json.dumps(self.json))
 
             if err:
-                sys.stderr.write(err)
+                raise NotebookAppExecutionError(err)
 
         return out
 
@@ -249,12 +260,23 @@ def run(nbjson, format=FORMAT, view=False):
         output, resources = exporter.from_notebook_node(nb_runner.nb, resources=dict(nbapp=name))
         return output
     except Empty as ex:
-        return template.render(message="ERROR: IPython Kernel timeout")
-    except (NotImplementedError, NotebookError) as ex:
+        sys.stderr.write("IPython Kernel timeout")
         err = mini_markdown_nb("""
 Notebook Error
 ==============
-Notebook contains unsupported feature:
+ERROR: IPython Kernel timeout
+```
+{error}
+```
+""".format(error=str(ex).split(':')[-1]))
+        output, resources = status.from_notebook_node(err, resources=dict(nbapp=name))
+        return output
+    except (NotImplementedError, NotebookError, ValueError) as ex:
+        sys.stderr.write(str(ex).splitlines()[-1])
+        err = mini_markdown_nb("""
+Notebook Error
+==============
+Notebook contains unsupported feature or bad argument:
 ```
 {error}
 ```
@@ -262,7 +284,9 @@ Notebook contains unsupported feature:
         output, resources = status.from_notebook_node(err, resources=dict(nbapp=name))
         return output
     except ImportError:
-        return template.render(message="ERROR: nodejs or pandoc must be installed")
+        msg = "nodejs or pandoc must be installed"
+        sys.stderr.write(msg)
+        return msg
 
 def mini_markdown_nb(markdown):
     "create a single text cell notebook with markdown in it"

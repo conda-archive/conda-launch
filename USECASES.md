@@ -1,3 +1,7 @@
+Use Cases
+=========
+*work in progress -- may not match current behavior*
+
 Eric is our end user.  Eric doesn't know any Python.  He wants to see Python in
 his browser as much as he wants to see PHP in his browser.
 

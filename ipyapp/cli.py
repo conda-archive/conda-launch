@@ -23,7 +23,7 @@ except ImportError:
     from urllib.request import pathname2url
 
 from ipyapp.config  import MODE, FORMAT, TIMEOUT
-from ipyapp.execute import NotebookApp, run
+from ipyapp.execute import NotebookApp, NotebookAppExecutionError, run
 
 descr   = "Invoke an IPython Notebook as an app and display the results"
 example = """
@@ -104,54 +104,63 @@ def launch_parser():
 
 def launchcmd():
 
-    args = launch_parser().parse_args()
-
     try:
-        if args.stream: # just execute the STDIN stream as JSON in the current python environment, return result on STDOUT
-            try:
-                result = run(sys.stdin.read(), format=args.format)
-                if args.mode in "open stream".split(): # in stream mode, open and tream are equivalent
-                    print(result)
-                else: # don't do anything else
-                    pass
-            except ValueError as ex:
-                print('bad notebook format: could not decode JSON')
-        else: # create a notebook app object from the CLI args
+        args = launch_parser().parse_args()
 
-            if args.view: # get a view of the current content, don't re-invoke
-                nba = NotebookApp(args.notebook)
-                result = run(nba.json, view=args.view)
-            else: # re-process notebook with new arguments
+        if "-h" in args.nbargs or "--help" in args.nbargs: # print help for this notebook and exit
 
-                if "-h" in args.nbargs or "--help" in args.nbargs:
-                    nba = NotebookApp(args.notebook)
-                    help(nba)
-                    return
+            nba = NotebookApp(args.notebook)
+            help(nba)
+            return 0
 
-                try:
-                    nbargs_dict = dict(pair.split('=',1) for pair in args.nbargs) # convert args from list to dict
-                    nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
-                                      mode=args.mode, format=args.format, output=args.output, env=args.env,
-                                      override=args.override)
-                    result = nba.startapp()
-                except KeyError as ex:
-                    print('ERROR: Notebook parameter [%s] not found' % str(ex))
-                    nba = NotebookApp(args.notebook)
-                    help(nba)
-                    return
+        elif args.stream: # just execute the STDIN stream as JSON in the current python environment, return result on STDOUT
 
-            if nba.mode == "open":
-                output_fn = "{name}-output.html".format(name=nba.name)
-                open(output_fn, 'w').write(result)
-                webbrowser.open('file://' + pathname2url(abspath(output_fn)))
-            elif nba.mode == "stream":
-                print(result)
-            elif nba.mode == "quiet":
-                # do nothing
-                pass
+            nbjson = sys.stdin.read()
+            result = run(nbjson, format=args.format)
+            print(result)
+            return 0
 
+        elif args.view: # get a view of the current content, don't re-invoke
+
+            nba = NotebookApp(args.notebook)
+            result = run(nba.json, view=args.view)
+
+        else: # regular notebook app processing
+
+            nbargs_dict = dict(pair.split('=',1) for pair in args.nbargs) # convert args from list to dict
+            nba = NotebookApp(args.notebook, nbargs_dict, timeout=args.timeout,
+                              mode=args.mode, format=args.format, output=args.output, env=args.env,
+                              override=args.override)
+            result = nba.startapp()
+
+        if nba.mode == "open":
+            output_fn = "{name}-output.html".format(name=nba.name)
+            open(output_fn, 'w').write(result)
+            webbrowser.open('file://' + pathname2url(abspath(output_fn)))
+        elif nba.mode == "stream":
+            print(result)
+        elif nba.mode == "quiet":
+            # do nothing
+            pass
+
+    except IOError as ex:
+        sys.stderr.write('ERROR: Notebook App [%s] could not be opened\n' % args.notebook)
+        return 1
     except ValueError as ex:
-        print("invalid arguments: " + str(ex))
+        sys.stderr.write('ERROR: Notebook App: could not decode JSON stream\n')
+        return 1
+    except KeyError as ex:
+        sys.stderr.write('ERROR: Notebook App parameter [%s] not found\n' % str(ex))
+        nba = NotebookApp(args.notebook) # need to re-create without other init params, just file
+        help(nba)
+        return 2
+    except NotebookAppExecutionError as ex:
+        sys.stderr.write('ERROR: Notebook App [%s] failed to run:\n%s\n' % (args.notebook, ex))
+        help(nba) # created OK, so can use nba
+        return 3
+    except Exception as ex:
+        sys.stderr.write('ERROR: Notebook App unknown error: %s\n' % ex)
+        return 4
 
 def help(nba):
     print("usage: conda launch {file} ".format(file=nba.nbfile), end='')
