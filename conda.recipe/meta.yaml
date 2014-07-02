@@ -12,6 +12,7 @@ requirements:
   run:
     - python
     - ipython
+    - ipython-notebook
     - setuptools
     - flask
     - requests
