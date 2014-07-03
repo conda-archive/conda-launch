@@ -5,13 +5,17 @@
     </head>
     <body>
         <div id="container">
-            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a> | </tt><a href="/">Apps</a> | <a href="/shutdown">Shutdown</a>
+            <tt><a href="http://github.com/conda/conda-launch">conda-launch</a></tt> | <a href="/">Apps</a> | <a href="/shutdown">Shutdown</a>
 
             <div class="title">
                 <h1>Status</h1>
             </div>
             <div id="content">
-                {{ message }}
+                {{ message }}<br>
+                <i>exception</i><br>
+                <pre>{{ exception }}</pre>
+                <i>error message</i><br>
+                <pre>{{ error }}</pre>
             </div>
         </div>
     </body>

@@ -161,8 +161,6 @@ def launchcmd():
             nba.set_nbargs(**nbargs_dict)
             (nbtxt, err) = nba.startapp()
 
-            err2exception(err)
-
             log.debug('finished regular execution')
 
 
@@ -212,21 +210,9 @@ def launchcmd():
         return 3
     except Exception as ex:
         sys.stderr.write('ERROR: Notebook App unknown error: %s\n%s\n' % (err, ex))
-        sys.stderr.write(format_exception(ex))
+        sys.stderr.write(format_exception(ex) + "\n")
 
         return 4
-
-
-def err2exception(err):
-    if 'ValueError' in err:
-        err_match = re.search("ValueError:(.*)\n", err)
-        var_match = re.search("---->\s*\d+\s*(.*)\n", err)
-        msg = 'Parameter value conversion error:\n'
-        if var_match:
-            msg += var_match.group(1) + "\n"
-        if err_match:
-            msg += err_match.group(1) + "\n"
-        raise TypeError(msg)
 
 def help(nba):
     print("usage: conda launch {file} ".format(file=nba.nbfile), end='')

@@ -34,9 +34,18 @@ from IPython.nbconvert.exporters.python   import PythonExporter
 
 from ipyapp.execute import run, NotebookApp, NotebookAppFormatError, NotebookAppExecutionError, NotebookAppError
 from ipyapp.daemon  import Daemon
-from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE, TIMEOUT, FORMAT, LOG_LEVEL
+from ipyapp.config  import DEBUG, PORT, HOST, PREFIX, PIDFILE, LOGFILE, ERRFILE, TIMEOUT, FORMAT, LOG_LEVEL, SECRET_KEY
 
 app = Flask(__name__, template_folder='templates')
+app.debug = DEBUG # NOTE: app.debug = True will stop daemonizer from working!
+
+try:
+    from flask_debugtoolbar import DebugToolbarExtension
+    app.config['SECRET_KEY'] = SECRET_KEY
+    toolbar = DebugToolbarExtension(app)
+except Exception:
+    # I guess flask-debugtoolbar isn't installed, so just ignore this
+    pass
 
 @app.route("/custom.css")
 @app.route("/ipyapp/custom.css")
@@ -72,6 +81,10 @@ else:
                                message='ERROR: Cannot shutdown. Not running from LOCALHOST. Contact system administrator'),
                 404)
 
+@app.route('/favicon.ico')
+def favicon():
+    return app.send_static_file('favicon.ico')
+
 def fetch_nb(nbname):
     """Given the notebook name, find it locally and return the full path"""
     nbpaths = [ nbname,
@@ -93,7 +106,7 @@ def runapp(nbname):
     try:
         nbpath = fetch_nb(nbname)
     except LookupError as ex:
-        return (render_template("status.html", message="Cannot locate notebook app: " + nbname),
+        return (render_template("server_status.html", message="Cannot locate notebook app: " + nbname),
                 404)
 
     jinja_env = Environment(loader=PackageLoader('ipyapp', 'templates'))
@@ -154,19 +167,28 @@ def runapp(nbname):
 
     except (IOError, ValueError, NotebookAppFormatError) as ex:
         return (render_template("server_status.html",
-                                message="Notebook App [%s] invalid file: %s\n%s" % (nbpath, ex, err)),
+                                message="Notebook App [%s] invalid file" % nbpath,
+                                exception=ex,
+                                error=err),
                 501)
-    except (BadRequestKeyError, KeyError, ValueError) as ex:
+    except (BadRequestKeyError, KeyError, ValueError, TypeError) as ex:
+        # TODO: tighten this up so invalid inputs are caught in a way that nba.name can be used
         return (render_template("server_status.html",
-                                message="Notebook App [%s] invalid inputs: %s\n%s" % (nbpath, ex, err)),
+                                message="Notebook App [%s] invalid inputs" % nbpath,
+                                exception=ex,
+                                error=err),
                 400)
     except NotebookAppExecutionError as ex:
         return (render_template("server_status.html",
-                                message='Notebook App [%s] failed to run: %s\n%s' % (nba.name, ex, err)),
+                                message='Notebook App [%s] failed to run' % nba.name,
+                                exception=ex,
+                                error=err),
                 400)
     except Exception as ex:
         return (render_template("server_status.html",
-                                message='Notebook App [%s] unknown error: %s\n%s' % (nbpath, ex, err)),
+                                message='Notebook App [%s] unknown error' % nbpath,
+                                exception=ex,
+                                error=err),
                 400)
 
 

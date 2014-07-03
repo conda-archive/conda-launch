@@ -20,8 +20,9 @@
                     <table>
                         {% for name, type in params %}
                             <tr>
-                                <td><abbr title="{{type}}">{{name}}</abbr></td>
-                                <td><input type="text" name={{name}} /><br /></td>
+                                <td>{{name}}</td>
+                                <td><input type="text" name="{{name}}" /><br /></td>
+                                <td>{{type}}</td>
                             </tr>
                         {% endfor %}
                     </table>

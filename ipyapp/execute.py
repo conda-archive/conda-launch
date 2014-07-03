@@ -10,22 +10,28 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 
-from subprocess import PIPE
+from subprocess import PIPE, Popen
 from Queue      import Empty
 
 from IPython.nbformat.current             import reads_json as nb_read_json, new_text_cell, new_notebook, new_worksheet
 from runipy.notebook_runner               import NotebookRunner, NotebookError
-
-import conda_api
-conda_api.set_root_prefix()
 
 from ipyapp.slugify import slugify
 from ipyapp.config import MODE, FORMAT, TIMEOUT, FIXED_DEPS, LOG_LEVEL
 
 logging.basicConfig(level=LOG_LEVEL)
 log = logging.getLogger(__name__)
+
+try:
+    import conda_api
+    conda_api.set_root_prefix()
+    CONDA_API_AVAILABLE = True
+except ImportError:
+    log.warn('conda_api package not available, so app dependencies will be ignored')
+    CONDA_API_AVAILABLE = False
 
 class NotebookAppError(Exception):
     " General Notebook App error "
@@ -192,28 +198,40 @@ class NotebookApp(object):
         "invoke the notebook app in a separate process with the appropriate environment"
         with cd(self.nbdir): # all execution now happens in the same directory as the notebook
 
-            if self.env: # if there is a named env, try to create it and use it
-                try:
-                    conda_api.create(name=self.env, pkgs=FIXED_DEPS+self.pkgs)
-                except conda_api.CondaEnvExistsError as ex:
-                    pass # just use the existing environment
-                env_dict=dict(name=self.env)
-            else: # use the path to the current env
-                env_dict=dict(path=conda_api.info()['default_prefix'])
-
             cmd  = "conda"
             args = "launch --stream --mode {mode}".format(mode=self.mode).split()
 
             if self.output:
                 args.extend("--output {output}".format(output=self.output).split())
 
-            nbproc = conda_api.process(cmd=cmd, args=args, timeout=self.timeout,
-                                       stdin=PIPE, stdout=PIPE, stderr=PIPE,
-                                       **env_dict)
+            if CONDA_API_AVAILABLE: # create a conda env if appropriate and invoke the app in a conda env
+                if self.env: # if there is a named env, try to create it and use it
+                    try:
+                        conda_api.create(name=self.env, pkgs=FIXED_DEPS+self.pkgs)
+                    except (conda_api.CondaEnvExistsError) as ex:
+                        log.info('Conda environment [{env}] exists, not recreating for app [{app}]'
+                                 .format(app=self.name, env=self.env))
+                    env_dict=dict(name=self.env)
+                else: # use the path to the current env
+                    env_dict=dict(path=conda_api.info()['default_prefix'])
+
+                nbproc = conda_api.process(cmd=cmd, args=args, timeout=self.timeout,
+                                           stdin=PIPE, stdout=PIPE, stderr=PIPE,
+                                           **env_dict)
+            else: # just use Popen to run the process
+                nbproc = Popen(cmd=cmd, args=args, timeout=self.timeout,
+                                stdin=PIPE, stdout=PIPE, stderr=PIPE)
 
             self.set_meta() # write the current Notebook App meta-data to the JSON so it is available to the
                             # independent process that will run the notebook app
             (nbstream, err) = nbproc.communicate(input=json.dumps(self.json))
+
+            # remove ANSI codes from output stream
+            ansi_escape = re.compile(r'\x1b[^m]*m')
+            nbstream    = ansi_escape.sub('', nbstream)
+            err         = ansi_escape.sub('', err)
+
+            err2exception(err)
 
             # TODO: should probably reorganize so invocation updates this NotebookApp object with the executed notebook
 
@@ -275,6 +293,23 @@ Notebook contains unsupported feature or bad argument:
         sys.stderr.write(msg)
         err = mini_markdown_nb(msg)
         return err
+
+def err2exception(err):
+    if 'ValueError' in err:
+        err_match = re.search("ValueError:(.*)\n", err)
+        var_match = re.search("---->\s*\d+\s*(.*)\n", err)
+        msg = 'Parameter value conversion error:\n'
+        if var_match:
+            msg += var_match.group(1) + "\n"
+        if err_match:
+            msg += err_match.group(1) + "\n"
+        raise TypeError(msg)
+    if 'KeyError' in err:
+        err_match = re.search("KeyError: u'(.*)'", err)
+        msg = 'Notebook parameter missing: '
+        if err_match:
+            msg += err_match.group(1) + "\n"
+        raise TypeError(msg)
 
 def mini_markdown_nb(markdown):
     "create a single text cell notebook with markdown in it"
