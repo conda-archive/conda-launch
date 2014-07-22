@@ -198,10 +198,10 @@ def launchcmd():
         return 1
     except ValueError as ex:
         sys.stderr.write('ERROR: Notebook App: could not decode JSON stream\n%s\n' % err)
-        sys.stderr.write(format_exception(ex))
+        #sys.stderr.write(format_exception(ex))
         return 1
     except TypeError as ex:
-        sys.stderr.write('ERROR: Notebook App parameter error\n%s' % str(ex))
+        sys.stderr.write('ERROR: Notebook App parameter error\n%s\n' % str(ex))
         help(nba)
         return 2
     except NotebookAppExecutionError as ex:

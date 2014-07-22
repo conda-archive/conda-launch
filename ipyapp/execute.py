@@ -148,8 +148,8 @@ class NotebookApp(object):
             try:
                 value = nbargs_txt[var]
                 input_cell['input'].append('{var} = {type}({value!r})\n'.format(var=var, type=type, value=value))
-            except ValueError as ex:
-                raise ValueError('Input param [%s, %s] not found in arguments [%s]' % (var, type, nbargs_txt))
+            except (ValueError, KeyError) as ex:
+                raise TypeError('Input param "%s" of type "%s" not found in arguments %s' % (var, type, nbargs_txt))
 
         log.debug('notebook app arguments cell:\n%s' % "".join(input_cell['input']))
 
