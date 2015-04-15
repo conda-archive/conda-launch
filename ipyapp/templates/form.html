@@ -15,7 +15,7 @@
             </div>
             <div id="content">
                 {{ desc }}
-                <form method="post" action="{{ post_url }}" >
+                <form method="post" action="{{ post_url }}" id="paramform">
                     {% block content %}
                     <table>
                         {% for name, type in params %}
@@ -24,6 +24,9 @@
                                 <td><input type="text" name="{{name}}" /><br /></td>
                                 <td>{{type}}</td>
                             </tr>
+                        {% endfor %}
+                        {% for name in multiline %}
+                            <textarea rows=5 name="{{ name }}" form="paramform"></textarea>
                         {% endfor %}
                     </table>
                     {% endblock %}                                 

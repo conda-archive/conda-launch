@@ -147,6 +147,9 @@ class NotebookApp(object):
         for var, type in self.inputs.items(): # iterate over all specified inputs
             try:
                 value = nbargs_txt[var]
+                if type == 'para':
+                    type = 'str'
+
                 input_cell['input'].append('{var} = {type}({value!r})\n'.format(var=var, type=type, value=value))
             except (ValueError, KeyError) as ex:
                 raise TypeError('Input param "%s" of type "%s" not found in arguments %s' % (var, type, nbargs_txt))

@@ -144,8 +144,13 @@ def runapp(nbname):
             info("nbargs_dict: %s" % nbargs_dict)
             if len(nba.inputs) > 0 and len(nba.inputs) > len(nbargs_dict) and request.method == "GET":
                 info("generate app form, since not enough inputs were provided")
-                return (render_template("form.html", nbapp=nba.name, params=nba.inputs.items(), desc=nba.desc),
-                        200)
+                singles = {k:v for k,v in nba.inputs.iteritems() if v != "para"}
+                multis = [k for k,v in nba.inputs.iteritems() if v == "para"]
+                return (render_template("form.html", nbapp=nba.name, desc=nba.desc,
+                    params=sorted(singles.items()),
+                    multiline=sorted(multis),
+                    ),
+                    200)
             else:
                 nba.set_nbargs(**nbargs_dict)
                 (nbtxt, err)  = nba.startapp()
